@@ -10,6 +10,8 @@ LOG_FILE = "trade_daemon_v2.log"
 STATE_FILE = "state.json"
 HISTORY_FILE = "history.json"
 
+FAILED_SYMBOLS = []
+
 # FSM States
 HUNTING = "HUNTING"
 DEPLOYED = "DEPLOYED"
@@ -17,7 +19,7 @@ COMPOUNDING = "COMPOUNDING"
 COOLDOWN = "COOLDOWN"
 
 # Config (Adjusted per Ghost's parameters)
-MAX_POSITIONS = 3          # Allow up to 3 concurrent trades
+MAX_POSITIONS = 5          # Allow up to 5 concurrent trades
 MIN_TRADE_SIZE = 15.0      # Safety margin above dust limits
 HARD_STOP_PCT = 0.015      # -1.5% absolute floor (defense)
 TRAIL_ACTIVATION = 0.01    # Must reach +1.0% profit to activate trailing stop
@@ -103,10 +105,13 @@ def get_top_volume_coins(limit=10):
         log(f"Error fetching top coins: {e}")
         return []
 
-def scan_market():
+def scan_market(exclude_symbols=[]):
     """Scans top 10 coins on 5M for S5_Scalp or S4_Momentum. Returns best symbol or None."""
     top_coins = get_top_volume_coins(10)
     for symbol in top_coins:
+        if symbol in exclude_symbols or symbol in FAILED_SYMBOLS:
+            continue
+            
         resp = get_candles(symbol, "5M", limit=100)
         if not resp or 'data' not in resp or 'klines' not in resp['data']:
             continue
@@ -154,6 +159,9 @@ def execute_buy(symbol, usdt_amount):
             return True
         else:
             log(f"[EXECUTE] ❌ BUY FAILED: {resp}")
+            if resp.get('code') == 'TRADE_INVALID_SYMBOL':
+                FAILED_SYMBOLS.append(symbol)
+                log(f"[BLACKLIST] {symbol} added to session blacklist.")
             return False
     except Exception as e:
         log(f"[EXECUTE] Error buying {symbol}: {e}")
@@ -197,116 +205,122 @@ def execute_sell(symbol):
         return False
 
 def run_v2_daemon():
-    state = HUNTING
-    active_coin = None
-    entry_price = 0.0
-    highest_price = 0.0
-    trade_size = MIN_TRADE_SIZE
-    
-    log(f"Initialize V2 Auto-Compounder FSM. Min Size: ${MIN_TRADE_SIZE}")
+    active_positions = {} # {symbol: {'entry': 1.0, 'peak': 1.0, 'amount_usdt': 15.0}}
+    log(f"Initialize V2 Auto-Compounder (Multi-Trade). Max: {MAX_POSITIONS} Positions.")
 
-    # Startup Check: Do we already have a bag?
+    # Startup Resume Logic
     try:
         res = send_pionex_request("GET", "/api/v1/account/balances")
         for item in res['data']['balances']:
             coin = item['coin']
             free = float(item['free'])
             if coin != 'USDT' and free > 0:
-                # Check value in USDT roughly
                 symbol = f"{coin}_USDT"
                 price = get_ticker(symbol)
                 if price:
                     value = free * price
-                    if value > 10.0: # Assume active trade if > $10
-                        log(f"[RESUME] Found existing bag of {symbol} (${value:.2f}). Resuming management.")
-                        active_coin = symbol
-                        entry_price = price # Reset baseline to now
-                        highest_price = price
-                        state = DEPLOYED
-                        break
+                    if value > 10.0:
+                        log(f"[RESUME] Found existing bag of {symbol} (${value:.2f}).")
+                        active_positions[symbol] = {
+                            'entry': price, 
+                            'peak': price,
+                            'amount_usdt': value
+                        }
     except Exception as e:
         log(f"Startup check failed: {e}")
 
     while True:
         try:
-            if state == HUNTING:
-                usdt = get_usdt_balance()
-                if usdt < MIN_TRADE_SIZE:
-                    log(f"Insufficient USDT (${usdt:.2f}). Waiting for manual intervention or V1 to close.")
-                    time.sleep(300)
-                    continue
+            # 1. MONITOR ACTIVE POSITIONS
+            current_holdings = list(active_positions.keys())
+            for symbol in current_holdings:
+                pos = active_positions[symbol]
+                current_price = get_ticker(symbol)
                 
-                # Cap trade size at $15 or available balance, whichever is lower
-                trade_size = min(usdt * 0.98, 15.0) 
+                if not current_price: continue
                 
-                log(f"[HUNTING] Scanning 5M charts for target. Arsenal: ${trade_size:.2f}")
-                save_state(HUNTING, pnl=0.0)
-                
-                target_symbol = scan_market()
-                
-                if target_symbol:
-                    if execute_buy(target_symbol, trade_size):
-                        active_coin = target_symbol
-                        time.sleep(2) # Give exchange a moment to process fill
-                        entry_price = get_ticker(target_symbol)
-                        highest_price = entry_price
-                        state = DEPLOYED
-                        log(f"[TRANSITION] -> DEPLOYED on {active_coin} at Entry: {entry_price}")
-                        save_state(DEPLOYED, active_coin, entry_price, entry_price, highest_price, 0.0)
-                        continue
-                
-                time.sleep(180) # 3 minutes between scans
-
-            elif state == DEPLOYED:
-                current_price = get_ticker(active_coin)
-                if not current_price:
-                    time.sleep(10)
-                    continue
-                
-                if current_price > highest_price:
-                    highest_price = current_price
+                if current_price > pos['peak']:
+                    pos['peak'] = current_price
                     
-                profit_pct = (current_price - entry_price) / entry_price
-                peak_pct = (highest_price - entry_price) / entry_price
-                drop_from_peak = (highest_price - current_price) / highest_price
+                profit_pct = (current_price - pos['entry']) / pos['entry']
+                peak_pct = (pos['peak'] - pos['entry']) / pos['entry']
+                drop_from_peak = (pos['peak'] - current_price) / pos['peak']
+                
+                # Check Exits
+                should_sell = False
+                reason = ""
                 
                 # Defense: Hard Stop Loss
                 if profit_pct <= -HARD_STOP_PCT:
-                    log(f"[DEPLOYED] 🔴 HARD STOP HIT on {active_coin} at {profit_pct*100:.2f}%. Liquidating.")
-                    save_trade_history(active_coin, entry_price, current_price, profit_pct * 100)
-                    execute_sell(active_coin)
-                    state = COOLDOWN
-                    continue
+                    reason = f"HARD STOP ({profit_pct*100:.2f}%)"
+                    should_sell = True
+                # Offense: Trailing Stop
+                elif peak_pct >= TRAIL_ACTIVATION and drop_from_peak >= TRAIL_DISTANCE:
+                    reason = f"TRAILING STOP (Peak: {peak_pct*100:.2f}%)"
+                    should_sell = True
+                    
+                if should_sell:
+                    log(f"[SELL] {symbol}: {reason}")
+                    if execute_sell(symbol):
+                        save_trade_history(symbol, pos['entry'], current_price, profit_pct * 100)
+                        del active_positions[symbol]
+                        continue 
                 
-                # Offense: Trailing Stop Logic (No Ceiling)
-                if peak_pct >= TRAIL_ACTIVATION:
-                    if drop_from_peak >= TRAIL_DISTANCE:
-                        log(f"[DEPLOYED] 🟢 TRAILING STOP HIT on {active_coin}. Secured profit from peak! Liquidating.")
-                        save_trade_history(active_coin, entry_price, current_price, profit_pct * 100)
-                        execute_sell(active_coin)
-                        state = COMPOUNDING
-                        continue
+                # Log PnL periodically (every ~30s is fine)
+                # log(f"[{symbol}] PnL: {profit_pct*100:.2f}%")
+            
+            # 2. HUNT FOR NEW TRADES
+            if len(active_positions) < MAX_POSITIONS:
+                usdt = get_usdt_balance()
                 
-                log(f"[{active_coin}] PnL: {profit_pct*100:.2f}% | Peak: {peak_pct*100:.2f}%")
-                save_state(DEPLOYED, active_coin, entry_price, current_price, highest_price, profit_pct * 100)
-                time.sleep(30) # High frequency monitoring while deployed
-
-            elif state == COMPOUNDING:
-                log("[COMPOUNDING] Trade successful. Re-calculating wallet balances...")
-                save_state(COMPOUNDING, pnl=0.0)
-                time.sleep(10) 
-                state = HUNTING
-                log("[TRANSITION] -> HUNTING (Compounded)")
-
-            elif state == COOLDOWN:
-                log(f"[COOLDOWN] Taking a {COOLDOWN_MINUTES}-minute breather to avoid revenge trading.")
-                save_state(COOLDOWN, pnl=0.0)
-                time.sleep(COOLDOWN_MINUTES * 60)
-                state = HUNTING
-                log("[TRANSITION] -> HUNTING (Cooldown Finished)")
-
+                # Compounding Logic: Trade Size = MAX(25% of Total Equity, $15.00)
+                total_equity = usdt
+                for sym in active_positions:
+                    # Approximation using entry value to avoid excessive API calls
+                    total_equity += active_positions[sym]['amount_usdt'] 
+                    
+                target_size = total_equity * 0.25
+                trade_size = max(MIN_TRADE_SIZE, target_size)
+                
+                # Check execution feasibility: Do we actually have the required free USDT?
+                if usdt >= trade_size:
+                    log(f"[HUNTING] Active: {len(active_positions)}/{MAX_POSITIONS}. Scan Size: ${trade_size:.2f} (Equity: ${total_equity:.2f})")
+                    
+                    target = scan_market(exclude_symbols=list(active_positions.keys()))
+                    if target:
+                        if execute_buy(target, trade_size):
+                            price = get_ticker(target)
+                            if price:
+                                active_positions[target] = {
+                                    'entry': price,
+                                    'peak': price,
+                                    'amount_usdt': trade_size
+                                }
+                                log(f"[DEPLOYED] Added {target} at {price}")
+                                time.sleep(2)
+                else:
+                    pass # Hold fire. Free USDT is insufficient to meet the calculated Trade Size.
+            
+            # 3. UPDATE STATE FILE
+            dashboard_pos = []
+            for sym, pos in active_positions.items():
+                curr = get_ticker(sym) or pos['peak']
+                pnl = (curr - pos['entry']) / pos['entry'] * 100
+                dashboard_pos.append({
+                    "coin": sym,
+                    "entry_price": pos['entry'],
+                    "current_price": curr,
+                    "highest_price": pos['peak'],
+                    "pnl_pct": pnl
+                })
+            
+            state_status = "DEPLOYED" if active_positions else "HUNTING"
+            save_state(state_status, active_positions=dashboard_pos)
+            
+            time.sleep(30) 
+            
         except Exception as e:
-            log(f"FSM Error: {e}")
+            log(f"Loop Error: {e}")
             time.sleep(60)
 
 if __name__ == '__main__':

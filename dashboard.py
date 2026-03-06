@@ -36,7 +36,10 @@ HTML_TEMPLATE = """
     <div class="container">
         <div class="header">
             <div class="title">CYPHER // DAEMON V2</div>
-            <div id="ui-status" class="status hunting">LOADING...</div>
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <div id="usdt-balance" style="font-size: 18px; color: #3fb950; font-weight: bold; font-family: monospace;">USDT: --</div>
+                <div id="ui-status" class="status hunting">LOADING...</div>
+            </div>
         </div>
         
         <div class="grid">
@@ -89,6 +92,10 @@ HTML_TEMPLATE = """
                 });
                 logBox.scrollTop = logBox.scrollHeight;
                 
+                // Update USDT Balance
+                const usdtBal = data.balances['USDT'] || 0.0;
+                document.getElementById('usdt-balance').textContent = `USDT: $${usdtBal.toFixed(2)}`;
+                
                 // Update Status Badge (Use state file for truth, fallback to logs)
                 const stateData = data.state || {};
                 const currentState = stateData.state || "HUNTING";
@@ -99,54 +106,62 @@ HTML_TEMPLATE = """
                 
                 // Update Live Trade Card
                 const tradeBox = document.getElementById('live-trade-data');
-                if (currentState === "DEPLOYED") {
-                    const pnlColor = stateData.pnl_pct >= 0 ? '#3fb950' : '#da3633';
-                    const pnlSign = stateData.pnl_pct >= 0 ? '+' : '';
-                    
-                    // Logic for Trailing Stop Status
-                    const activationPct = 1.0; // 1% activation hardcoded in bot
-                    const trailDist = 1.0;     // 1% distance hardcoded in bot
-                    
-                    let tslStatus = '<span style="color: #8b949e;">INACTIVE (Needs +1%)</span>';
-                    let tslPrice = "N/A";
-                    
-                    // Calculate Peak PnL
-                    const peakPnl = ((stateData.highest_price - stateData.entry_price) / stateData.entry_price) * 100;
-                    
-                    if (peakPnl >= activationPct) {
-                        tslStatus = '<span style="color: #3fb950; font-weight: bold;">ACTIVE</span> (Following Peak)';
-                        // TSL trigger is 1% below peak
-                        const triggerPrice = stateData.highest_price * (1 - (trailDist / 100));
-                        tslPrice = triggerPrice.toPrecision(6);
-                    } else {
-                         // Show where it needs to go to activate
-                         const activationPrice = stateData.entry_price * (1 + (activationPct / 100));
-                         const hardStop = stateData.entry_price * (1 - 0.015);
-                         tslStatus = `<span style="color: #8b949e;">INACTIVE (Needs +1%)</span>`;
-                         tslPrice = `Hard Stop @ ${hardStop.toPrecision(6)}`;
-                    }
-                    
-                    tradeBox.innerHTML = `
-                        <div style="font-size: 18px; margin-bottom: 10px; font-weight: bold; color: #58a6ff;">${stateData.coin}</div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 14px;">
-                            <div><span style="color: #8b949e;">Entry:</span> ${stateData.entry_price}</div>
-                            <div><span style="color: #8b949e;">Current:</span> ${stateData.current_price}</div>
-                            <div><span style="color: #8b949e;">Peak:</span> ${stateData.highest_price}</div>
-                            <div style="font-weight: bold; color: ${pnlColor};">PnL: ${pnlSign}${stateData.pnl_pct.toFixed(2)}%</div>
-                            
-                            <div style="grid-column: span 2; border-top: 1px solid #30363d; margin-top: 5px; padding-top: 5px;">
-                                <div><span style="color: #8b949e;">TSL Status:</span> ${tslStatus}</div>
-                                <div><span style="color: #8b949e;">Safety Net:</span> <span style="color: #da3633;">${tslPrice}</span></div>
+                const positions = stateData.positions || [];
+                
+                if (positions.length > 0) {
+                    let html = '';
+                    positions.forEach(pos => {
+                        const pnlColor = pos.pnl_pct >= 0 ? '#3fb950' : '#da3633';
+                        const pnlSign = pos.pnl_pct >= 0 ? '+' : '';
+                        
+                        // Logic for Trailing Stop Status
+                        const activationPct = 1.0; 
+                        const trailDist = 1.0;     
+                        
+                        let tslStatus = '<span style="color: #8b949e;">INACTIVE (Needs +1%)</span>';
+                        let tslPrice = "N/A";
+                        
+                        // Calculate Peak PnL
+                        const peakPnl = ((pos.highest_price - pos.entry_price) / pos.entry_price) * 100;
+                        
+                        if (peakPnl >= activationPct) {
+                            tslStatus = '<span style="color: #3fb950; font-weight: bold;">ACTIVE</span>';
+                            const triggerPrice = pos.highest_price * (1 - (trailDist / 100));
+                            tslPrice = triggerPrice.toPrecision(6);
+                        } else {
+                             const hardStop = pos.entry_price * (1 - 0.015);
+                             tslStatus = `<span style="color: #8b949e;">INACTIVE</span>`;
+                             tslPrice = `Hard Stop @ ${hardStop.toPrecision(6)}`;
+                        }
+                        
+                        html += `
+                        <div style="border-bottom: 1px solid #30363d; padding-bottom: 10px; margin-bottom: 10px;">
+                            <div style="font-size: 18px; margin-bottom: 10px; font-weight: bold; color: #58a6ff;">${pos.coin}</div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 14px;">
+                                <div><span style="color: #8b949e;">Entry:</span> ${pos.entry_price}</div>
+                                <div><span style="color: #8b949e;">Current:</span> ${pos.current_price}</div>
+                                <div><span style="color: #8b949e;">Peak:</span> ${pos.highest_price}</div>
+                                <div style="font-weight: bold; color: ${pnlColor};">PnL: ${pnlSign}${pos.pnl_pct.toFixed(2)}%</div>
+                                
+                                <div style="grid-column: span 2; border-top: 1px solid #30363d; margin-top: 5px; padding-top: 5px;">
+                                    <div><span style="color: #8b949e;">Safety:</span> ${tslStatus} -> <span style="color: #da3633;">${tslPrice}</span></div>
+                                </div>
                             </div>
-                            
-                            <div style="grid-column: span 2; margin-top: 5px; color: #8b949e; font-size: 12px;">Last Update: ${stateData.timestamp}</div>
                         </div>
-                    `;
+                        `;
+                    });
+                    
+                    // Add timestamp at bottom
+                    html += `<div style="color: #8b949e; font-size: 12px; margin-top: 5px;">Last Update: ${stateData.timestamp}</div>`;
+                    
+                    tradeBox.innerHTML = html;
+                
                 } else if (currentState === "HUNTING") {
                     tradeBox.innerHTML = `
                         <p style="color: #3fb950; font-weight: bold;">HUNTING FOR TARGETS...</p>
                         <p style="color: #8b949e; font-size: 13px;">Scanning top 10 volume coins on 5M timeframe.</p>
                         <p style="color: #8b949e; font-size: 13px;">Waiting for S4/S5 signals.</p>
+                        <div style="color: #8b949e; font-size: 12px; margin-top: 5px;">Last Update: ${stateData.timestamp || 'N/A'}</div>
                     `;
                 } else {
                     tradeBox.innerHTML = `<p style="color: #da3633;">${currentState}</p>`;

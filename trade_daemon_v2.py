@@ -167,6 +167,18 @@ def execute_buy(symbol, usdt_amount):
         log(f"[EXECUTE] Error buying {symbol}: {e}")
         return False
 
+def get_coin_balance(symbol):
+    """Returns the free balance of the base currency for a given symbol (e.g. PEPE_USDT -> PEPE)."""
+    try:
+        coin = symbol.split('_')[0]
+        res = send_pionex_request("GET", "/api/v1/account/balances")
+        for item in res['data']['balances']:
+            if item['coin'] == coin:
+                return float(item['free'])
+        return 0.0
+    except:
+        return 0.0
+
 def execute_sell(symbol):
     # Retrieve base balance and place market sell
     try:
@@ -220,11 +232,13 @@ def run_v2_daemon():
                 if price:
                     value = free * price
                     if value > 10.0:
-                        log(f"[RESUME] Found existing bag of {symbol} (${value:.2f}).")
+                        log(f"[RESUME] Found existing bag of {symbol} (${value:.2f}, Qty: {free}).")
                         active_positions[symbol] = {
                             'entry': price, 
                             'peak': price,
-                            'amount_usdt': value
+                            'quantity': free,
+                            'start_time': int(time.time()),
+                            'cost_basis': value
                         }
     except Exception as e:
         log(f"Startup check failed: {e}")
@@ -246,6 +260,9 @@ def run_v2_daemon():
                 peak_pct = (pos['peak'] - pos['entry']) / pos['entry']
                 drop_from_peak = (pos['peak'] - current_price) / pos['peak']
                 
+                # Dynamic Size Calculation
+                current_value_usdt = pos['quantity'] * current_price
+                
                 # Check Exits
                 should_sell = False
                 reason = ""
@@ -260,14 +277,14 @@ def run_v2_daemon():
                     should_sell = True
                     
                 if should_sell:
-                    log(f"[SELL] {symbol}: {reason}")
+                    log(f"[SELL] {symbol}: {reason} (Qty: {pos['quantity']})")
                     if execute_sell(symbol):
                         save_trade_history(symbol, pos['entry'], current_price, profit_pct * 100)
                         del active_positions[symbol]
                         continue 
                 
                 # Log PnL periodically (every ~30s is fine)
-                # log(f"[{symbol}] PnL: {profit_pct*100:.2f}%")
+                # log(f"[{symbol}] PnL: {profit_pct*100:.2f}% | Val: ${current_value_usdt:.2f}")
             
             # 2. HUNT FOR NEW TRADES
             if len(active_positions) < MAX_POSITIONS:
@@ -276,8 +293,8 @@ def run_v2_daemon():
                 # Compounding Logic: Trade Size = MAX(25% of Total Equity, $15.00)
                 total_equity = usdt
                 for sym in active_positions:
-                    # Approximation using entry value to avoid excessive API calls
-                    total_equity += active_positions[sym]['amount_usdt'] 
+                    # Use dynamic current value
+                    total_equity += active_positions[sym]['quantity'] * get_ticker(sym)
                     
                 target_size = total_equity * 0.25
                 trade_size = max(MIN_TRADE_SIZE, target_size)
@@ -289,15 +306,20 @@ def run_v2_daemon():
                     target = scan_market(exclude_symbols=list(active_positions.keys()))
                     if target:
                         if execute_buy(target, trade_size):
+                            # Sleep to let balance update
+                            time.sleep(3)
                             price = get_ticker(target)
-                            if price:
+                            qty = get_coin_balance(target)
+                            
+                            if price and qty > 0:
                                 active_positions[target] = {
                                     'entry': price,
                                     'peak': price,
-                                    'amount_usdt': trade_size
+                                    'quantity': qty,
+                                    'start_time': int(time.time()),
+                                    'cost_basis': trade_size
                                 }
-                                log(f"[DEPLOYED] Added {target} at {price}")
-                                time.sleep(2)
+                                log(f"[DEPLOYED] Added {target} at {price} (Qty: {qty})")
                 else:
                     pass # Hold fire. Free USDT is insufficient to meet the calculated Trade Size.
             
@@ -306,12 +328,16 @@ def run_v2_daemon():
             for sym, pos in active_positions.items():
                 curr = get_ticker(sym) or pos['peak']
                 pnl = (curr - pos['entry']) / pos['entry'] * 100
+                current_val = pos['quantity'] * curr
                 dashboard_pos.append({
                     "coin": sym,
                     "entry_price": pos['entry'],
                     "current_price": curr,
                     "highest_price": pos['peak'],
-                    "pnl_pct": pnl
+                    "pnl_pct": pnl,
+                    "amount_usdt": current_val,
+                    "cost_basis": pos.get('cost_basis', current_val),
+                    "start_time": pos.get('start_time', int(time.time()))
                 })
             
             state_status = "DEPLOYED" if active_positions else "HUNTING"

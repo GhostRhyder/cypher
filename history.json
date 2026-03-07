@@ -22,5 +22,13 @@
     "exit": "MARKET",
     "pnl_pct": 0.0,
     "result": "COMPLETED"
+  },
+  {
+    "timestamp": "2026-03-07 14:05:45",
+    "coin": "PEPE_USDT",
+    "entry": 3.352e-06,
+    "exit": 3.295e-06,
+    "pnl_pct": -1.7004773269689755,
+    "result": "LOSS"
   }
 ]

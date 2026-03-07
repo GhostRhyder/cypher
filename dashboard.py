@@ -44,11 +44,10 @@ HTML_TEMPLATE = """
         
         <div class="grid">
             <div class="card">
-                <h3>PORTFOLIO BALANCES</h3>
-                <table id="balances-table">
-                    <tr><th>Asset</th><th>Free Balance</th><th>Value (est)</th></tr>
-                    <tr><td colspan="3">Fetching...</td></tr>
-                </table>
+                <h3>DAEMON LOGS (Live)</h3>
+                <div class="log-box" id="log-box">
+                    Loading logs...
+                </div>
             </div>
             <div class="card">
                 <h3>LIVE TRADE</h3>
@@ -67,10 +66,11 @@ HTML_TEMPLATE = """
         </div>
         
         <div class="card">
-            <h3>DAEMON LOGS (Live)</h3>
-            <div class="log-box" id="log-box">
-                Loading logs...
-            </div>
+            <h3>PORTFOLIO BALANCES</h3>
+            <table id="balances-table">
+                <tr><th>Asset</th><th>Free Balance</th></tr>
+                <tr><td colspan="2">Fetching...</td></tr>
+            </table>
         </div>
     </div>
 
@@ -134,13 +134,30 @@ HTML_TEMPLATE = """
                              tslPrice = `Hard Stop @ ${hardStop.toPrecision(6)}`;
                         }
                         
+                        // Calculate Duration
+                        let durationStr = "Just now";
+                        if (pos.start_time) {
+                            const now = Math.floor(Date.now() / 1000);
+                            const diff = now - pos.start_time;
+                            const hrs = Math.floor(diff / 3600);
+                            const mins = Math.floor((diff % 3600) / 60);
+                            durationStr = `${hrs}h ${mins}m`;
+                        }
+
+                        // Get Value
+                        const tradeValue = pos.amount_usdt ? `$${pos.amount_usdt.toFixed(2)}` : "N/A";
+                        const costBasis = pos.cost_basis ? `$${pos.cost_basis.toFixed(2)}` : "N/A";
+
                         html += `
                         <div style="border-bottom: 1px solid #30363d; padding-bottom: 10px; margin-bottom: 10px;">
-                            <div style="font-size: 18px; margin-bottom: 10px; font-weight: bold; color: #58a6ff;">${pos.coin}</div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                <div style="font-size: 18px; font-weight: bold; color: #58a6ff;">${pos.coin}</div>
+                                <div style="font-size: 12px; color: #8b949e;">${durationStr}</div>
+                            </div>
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 14px;">
+                                <div><span style="color: #8b949e;">Size:</span> ${costBasis} -> <span style="color: ${pnlColor}; font-weight: bold;">${tradeValue}</span></div>
                                 <div><span style="color: #8b949e;">Entry:</span> ${pos.entry_price}</div>
                                 <div><span style="color: #8b949e;">Current:</span> ${pos.current_price}</div>
-                                <div><span style="color: #8b949e;">Peak:</span> ${pos.highest_price}</div>
                                 <div style="font-weight: bold; color: ${pnlColor};">PnL: ${pnlSign}${pos.pnl_pct.toFixed(2)}%</div>
                                 
                                 <div style="grid-column: span 2; border-top: 1px solid #30363d; margin-top: 5px; padding-top: 5px;">

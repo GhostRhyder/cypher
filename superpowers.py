@@ -74,10 +74,16 @@ def calc_atr(klines: list, period: int = 14) -> tuple[float, float]:
     if len(klines) < period + 1:
         return 0.0, 0.0
 
-    # Pionex kline format: [time, open, close, high, low, volume]
-    closes = [float(k[2]) for k in klines]
-    highs  = [float(k[3]) for k in klines]
-    lows   = [float(k[4]) for k in klines]
+    closes, highs, lows = [], [], []
+    for k in klines:
+        if isinstance(k, dict):
+            closes.append(float(k.get('close', 0)))
+            highs.append(float(k.get('high', 0)))
+            lows.append(float(k.get('low', 0)))
+        else:
+            closes.append(float(k[2]))
+            highs.append(float(k[3]))
+            lows.append(float(k[4]))
 
     true_ranges = []
     for i in range(1, len(klines)):
@@ -106,10 +112,16 @@ def calc_adx(klines: list, period: int = 14) -> float:
     if len(klines) < period * 2:
         return 0.0
 
-    # Pionex kline format: [time, open, close, high, low, volume]
-    closes = [float(k[2]) for k in klines]
-    highs  = [float(k[3]) for k in klines]
-    lows   = [float(k[4]) for k in klines]
+    closes, highs, lows = [], [], []
+    for k in klines:
+        if isinstance(k, dict):
+            closes.append(float(k.get('close', 0)))
+            highs.append(float(k.get('high', 0)))
+            lows.append(float(k.get('low', 0)))
+        else:
+            closes.append(float(k[2]))
+            highs.append(float(k[3]))
+            lows.append(float(k[4]))
 
     plus_dm_list  = []
     minus_dm_list = []

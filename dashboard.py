@@ -28,6 +28,10 @@ HTML_TEMPLATE = """
         .log-line { margin-bottom: 4px; }
         
         table { width: 100%; border-collapse: collapse; }
+
+        .tab-btn { background: #30363d; color: #c9d1d9; border: none; padding: 8px 16px; margin-right: 5px; cursor: pointer; border-radius: 4px 4px 0 0; font-family: monospace; }
+        .tab-btn.active { background: #238636; color: white; }
+
         th, td { text-align: left; padding: 8px; border-bottom: 1px solid #30363d; }
         th { color: #8b949e; font-weight: normal; }
     </style>
@@ -58,10 +62,26 @@ HTML_TEMPLATE = """
         </div>
         
         <div class="card" style="margin-bottom: 20px;">
-            <h3>TRADE HISTORY (Last 50)</h3>
+            <div style="display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 1px solid #30363d; margin-bottom: 15px;">
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <h3 id="history-title" style="margin: 0; border: none; padding: 0;">TRADE HISTORY</h3>
+                    <div style="display: flex; gap: 5px;">
+                        <button id="tab-v3" class="tab-btn active" onclick="setTab('V3')">V3 Trades</button>
+                        <button id="tab-v2" class="tab-btn" onclick="setTab('V2')">V2 Trades</button>
+                    </div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-end; padding-bottom: 5px;">
+                    <div id="total-pnl" style="font-weight: bold; font-size: 16px;">Total PnL: Calculating...</div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button onclick="changePage(-1)" id="btn-prev" style="background: #238636; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Prev</button>
+                        <span id="page-info">Page 1</span>
+                        <button onclick="changePage(1)" id="btn-next" style="background: #238636; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Next</button>
+                    </div>
+                </div>
+            </div>
             <table id="history-table">
-                <tr><th>Time</th><th>Coin</th><th>Result</th><th>PnL</th></tr>
-                <tr><td colspan="4" style="color: #8b949e; text-align: center;">No trades recorded yet.</td></tr>
+                <tr><th>Time</th><th>Coin</th><th>Dir</th><th>Length</th><th>Result</th><th>PnL %</th><th>PnL $</th></tr>
+                <tr><td colspan="7" style="color: #8b949e; text-align: center;">No trades recorded yet.</td></tr>
             </table>
         </div>
         
@@ -75,6 +95,28 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
+        
+        // Pagination state
+        let currentTab = 'V3';
+        
+        function setTab(tabName) {
+            currentTab = tabName;
+            document.getElementById('tab-v3').classList.remove('active');
+            document.getElementById('tab-v2').classList.remove('active');
+            document.getElementById('tab-' + tabName.toLowerCase()).classList.add('active');
+            currentPage = 1;
+            updateDashboard();
+        }
+
+        let currentPage = 1;
+        const itemsPerPage = 20;
+        let totalHistoryItems = 0;
+
+        function changePage(delta) {
+            currentPage += delta;
+            updateDashboard();
+        }
+
         async function updateDashboard() {
             try {
                 const response = await fetch('/api/data');
@@ -115,10 +157,10 @@ HTML_TEMPLATE = """
                         const pnlSign = pos.pnl_pct >= 0 ? '+' : '';
                         
                         // Logic for Trailing Stop Status
-                        const activationPct = 1.0; 
-                        const trailDist = 1.0;     
+                        const activationPct = 0.6; // Speed Mode (0.6%)
+                        const trailDist = 0.2;     // Speed Mode (0.2%)
                         
-                        let tslStatus = '<span style="color: #8b949e;">INACTIVE (Needs +1%)</span>';
+                        let tslStatus = '<span style="color: #8b949e;">INACTIVE (Needs +0.6%)</span>';
                         let tslPrice = "N/A";
                         
                         // Calculate Peak PnL
@@ -129,7 +171,7 @@ HTML_TEMPLATE = """
                             const triggerPrice = pos.highest_price * (1 - (trailDist / 100));
                             tslPrice = triggerPrice.toPrecision(6);
                         } else {
-                             const hardStop = pos.entry_price * (1 - 0.015);
+                             const hardStop = pos.entry_price * (1 - 0.008);
                              tslStatus = `<span style="color: #8b949e;">INACTIVE</span>`;
                              tslPrice = `Hard Stop @ ${hardStop.toPrecision(6)}`;
                         }
@@ -195,23 +237,79 @@ HTML_TEMPLATE = """
                 }
                 tbody.innerHTML = rows;
                 
-                // Update History Table
+                // Update History Table & Running Total
                 const histBody = document.getElementById('history-table');
+                const totalPnlEl = document.getElementById('total-pnl');
+                
                 if (data.history && data.history.length > 0) {
-                    let histRows = "<tr><th>Time</th><th>Coin</th><th>Result</th><th>PnL</th></tr>";
-                    data.history.forEach(trade => {
+                    // Filter history by tab
+                    const filteredHistory = data.history.filter(t => (t.version || 'V2') === currentTab);
+                    
+                    document.getElementById('history-title').innerText = `TRADE HISTORY (${filteredHistory.length} Trades)`;
+                    let histRows = "<tr><th>Time</th><th>Coin</th><th>Dir</th><th>Length</th><th>Result</th><th>PnL %</th><th>PnL $</th></tr>";
+                    let runningTotal = 0.0;
+                    
+                    totalHistoryItems = filteredHistory.length;
+                    
+                    // Pagination bounds
+                    const totalPages = Math.ceil(totalHistoryItems / itemsPerPage) || 1;
+                    if (currentPage > totalPages) currentPage = totalPages;
+                    if (currentPage < 1) currentPage = 1;
+                    
+                    document.getElementById('page-info').innerText = `Page ${currentPage} of ${totalPages}`;
+                    document.getElementById('btn-prev').disabled = currentPage === 1;
+                    document.getElementById('btn-next').disabled = currentPage === totalPages;
+                    
+                    const startIndex = (currentPage - 1) * itemsPerPage;
+                    const endIndex = startIndex + itemsPerPage;
+                    
+                    // Calculate total PnL from all filtered items
+                    filteredHistory.forEach(trade => {
+                        let pnlUsdt = trade.pnl_usdt;
+                        if (pnlUsdt === undefined) {
+                            const basis = trade.cost_basis || 21.50;
+                            pnlUsdt = basis * (trade.pnl_pct / 100);
+                        }
+                        runningTotal += pnlUsdt;
+                    });
+                    
+                    // Render current page items
+                    const pageItems = filteredHistory.slice(startIndex, endIndex);
+                    pageItems.forEach(trade => {
                         const pnlColor = trade.pnl_pct >= 0 ? '#3fb950' : '#da3633';
                         const pnlSign = trade.pnl_pct >= 0 ? '+' : '';
+                        
+                        let pnlUsdt = trade.pnl_usdt;
+                        if (pnlUsdt === undefined) {
+                            const basis = trade.cost_basis || 21.50;
+                            pnlUsdt = basis * (trade.pnl_pct / 100);
+                        }
+                        const pnlUsdtStr = (pnlUsdt >= 0 ? '+' : '') + '$' + pnlUsdt.toFixed(2);
+                        
+                        const direction = trade.direction || "LONG";
+                        const tradeLen = trade.trade_length || "N/A";
+                        
                         histRows += `
                             <tr>
                                 <td>${trade.timestamp}</td>
                                 <td>${trade.coin}</td>
+                                <td>${direction}</td>
+                                <td>${tradeLen}</td>
                                 <td style="color: ${pnlColor}; font-weight: bold;">${trade.result}</td>
                                 <td style="color: ${pnlColor};">${pnlSign}${trade.pnl_pct.toFixed(2)}%</td>
+                                <td style="color: ${pnlColor}; font-weight: bold;">${pnlUsdtStr}</td>
                             </tr>
                         `;
                     });
+                    
                     histBody.innerHTML = histRows;
+                    
+                    const totalColor = runningTotal >= 0 ? '#3fb950' : '#da3633';
+                    const totalSign = runningTotal >= 0 ? '+' : '';
+                    totalPnlEl.innerHTML = `Total PnL: <span style="color: ${totalColor};">${totalSign}$${runningTotal.toFixed(2)}</span>`;
+                    
+                } else {
+                    totalPnlEl.textContent = "Total PnL: $0.00";
                 }
                 
             } catch (err) {

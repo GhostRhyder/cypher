@@ -120,9 +120,26 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         const itemsPerPage = 15;
         let currentPionexTab = 'V3';
         
+        function formatDuration(startTime) {
+            if (!startTime) return 'N/A';
+            const now = new Date();
+            // start_time is in seconds, convert to ms for Date object
+            const start = new Date(startTime * 1000);
+            let totalSeconds = Math.floor((now - start) / 1000);
+            
+            let hours = Math.floor(totalSeconds / 3600);
+            totalSeconds %= 3600;
+            let minutes = Math.floor(totalSeconds / 60);
+            let seconds = totalSeconds % 60;
+
+            const pad = (num) => num.toString().padStart(2, '0');
+            return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+        }
+
         function formatTradeTime(ts) {
             if (!ts) return '';
             try {
+                // Handle both string and number timestamps
                 const date = new Date(ts);
                 const hours = date.getHours().toString().padStart(2, '0');
                 const minutes = date.getMinutes().toString().padStart(2, '0');
@@ -132,6 +149,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
                 return ts; // fallback to raw
             }
         }
+
         
         function setPionexTab(tab) {
             currentPionexTab = tab;
@@ -191,6 +209,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
                             <div><span style="color: #8b949e;">Size:</span> $${costBasis.toFixed(2)}</div>
                             <div style="font-weight: bold; color: ${pnlColor};">PnL: ${pnlSign}${pnlPct.toFixed(2)}%</div>
                             <div><span style="color: #8b949e;">Entry:</span> ${entryPrice}</div>
+                            <div><span style="color: #8b949e;">Duration:</span> ${formatDuration(pos.start_time)}</div>
                             <div><span style="color: #8b949e;">Current:</span> ${currPrice}</div>
                         </div>
                     </div>

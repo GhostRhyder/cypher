@@ -1,3 +1,4 @@
+from superpowers import get_trade_params
 import time
 import json
 import pandas as pd
@@ -13,34 +14,41 @@ HISTORY_FILE = "history.json"
 FAILED_SYMBOLS = []
 
 # FSM States
-HUNTING = "HUNTING"
-DEPLOYED = "DEPLOYED"
+HUNTING     = "HUNTING"
+DEPLOYED    = "DEPLOYED"
 COMPOUNDING = "COMPOUNDING"
-COOLDOWN = "COOLDOWN"
+COOLDOWN    = "COOLDOWN"
 
-# Config (Adjusted per Ghost's parameters)
-MAX_POSITIONS = 5          # Allow up to 5 concurrent trades
-MIN_TRADE_SIZE = 15.0      # Safety margin above dust limits
-HARD_STOP_PCT = 0.015      # -1.5% absolute floor (defense)
-TRAIL_ACTIVATION = 0.01    # Must reach +1.0% profit to activate trailing stop
-TRAIL_DISTANCE = 0.01      # Trailing stop stays 1.0% behind the peak
-COOLDOWN_MINUTES = 5       # Wait time after a stop-out
+# V3 Config
+MAX_POSITIONS   = 3
+MIN_TRADE_SIZE  = 15.0
+HARD_STOP_PCT   = 0.005     # fallback only — superpowers overrides this
+HARD_TP_PCT     = 0.008     # fallback only — superpowers overrides this
+MAX_SPREAD_PCT  = 0.0015
+COOLDOWN_MINUTES = 5
+
+ALLOWED_COINS = [
+    "BTC_USDT", "ETH_USDT", "SOL_USDT",
+    "ADA_USDT", "TRX_USDT", "XRP_USDT",
+    "LINK_USDT", "AVAX_USDT"
+]
 
 def log(msg):
-    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    line = f"[V2] [{stamp}] {msg}"
+    now_utc      = datetime.now()
+    now_plus_one = now_utc + pd.Timedelta(hours=1)
+    stamp        = now_plus_one.strftime("%Y-%m-%d %H:%M:%S")
+    line         = f"[V3] [{stamp}] {msg}"
     print(line)
     with open(LOG_FILE, "a") as f:
         f.write(line + "\n")
 
 def save_state(state, active_positions=[], pnl=0.0):
-    # active_positions is a list of dicts:
-    # [{'coin': 'PEPE_USDT', 'entry': ..., 'current': ..., 'peak': ..., 'pnl': ...}]
+    now_plus_one = datetime.now() + pd.Timedelta(hours=1)
     data = {
-        "state": state,
+        "state":     state,
         "positions": active_positions,
-        "timestamp": datetime.now().strftime("%H:%M:%S"),
-        "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "timestamp": now_plus_one.strftime("%H:%M:%S"),
+        "updated":   now_plus_one.strftime("%Y-%m-%d %H:%M:%S")
     }
     try:
         with open(STATE_FILE, "w") as f:
@@ -48,28 +56,40 @@ def save_state(state, active_positions=[], pnl=0.0):
     except:
         pass
 
-def save_trade_history(coin, entry, exit_price, pnl_pct):
+def save_trade_history(coin, entry, exit_price, pnl_pct, cost_basis=21.50, start_time=None):
+    now_plus_one = datetime.now() + pd.Timedelta(hours=1)
+    pnl_pct_net  = pnl_pct - 0.2
+    pnl_usdt     = cost_basis * (pnl_pct_net / 100.0)
+
+    trade_len = "N/A"
+    if start_time:
+        secs      = int(time.time() - start_time)
+        trade_len = f"{secs // 60}m"
+
     trade = {
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "coin": coin,
-        "entry": entry,
-        "exit": exit_price,
-        "pnl_pct": pnl_pct,
-        "result": "WIN" if pnl_pct >= 0 else "LOSS"
+        "timestamp":   now_plus_one.strftime("%Y-%m-%d %H:%M:%S"),
+        "version":     "V3",
+        "direction":   "LONG",
+        "trade_length": trade_len,
+        "coin":        coin,
+        "entry":       entry,
+        "exit":        exit_price,
+        "pnl_pct":     pnl_pct_net,
+        "pnl_usdt":    pnl_usdt,
+        "cost_basis":  cost_basis,
+        "result":      "WIN" if pnl_pct_net >= 0 else "LOSS"
     }
-    
-    history = []
+
     try:
         with open(HISTORY_FILE, "r") as f:
             history = json.load(f)
     except:
         history = []
-        
+
     history.append(trade)
-    # Keep last 50
-    if len(history) > 50:
-        history = history[-50:]
-        
+    if len(history) > 10000:
+        history = history[-10000:]
+
     try:
         with open(HISTORY_FILE, "w") as f:
             json.dump(history, f, indent=2)
@@ -88,74 +108,77 @@ def get_usdt_balance():
 
 def get_ticker(symbol):
     try:
-        # Fix: Pass symbol as params, not in path
         res = send_pionex_request("GET", "/api/v1/market/tickers", params={"symbol": symbol})
         return float(res['data']['tickers'][0]['close'])
     except:
         return None
 
 def get_top_volume_coins(limit=10):
+    return ALLOWED_COINS
+
+def get_spread_pct(symbol):
     try:
-        res = send_pionex_request("GET", "/api/v1/market/tickers")
-        tickers = res['data']['tickers']
-        usdt_pairs = [t for t in tickers if t['symbol'].endswith('_USDT') and 'BEAR' not in t['symbol'] and 'BULL' not in t['symbol']]
-        sorted_pairs = sorted(usdt_pairs, key=lambda x: float(x['volume']), reverse=True)
-        return [t['symbol'] for t in sorted_pairs[:limit]]
-    except Exception as e:
-        log(f"Error fetching top coins: {e}")
-        return []
+        res = send_pionex_request("GET", "/api/v1/market/depth", params={"symbol": symbol, "limit": 1})
+        if res and 'data' in res:
+            bid = float(res['data']['bids'][0][0])
+            ask = float(res['data']['asks'][0][0])
+            if bid > 0 and ask > 0:
+                return (ask - bid) / bid
+        return None
+    except:
+        return None
 
 def scan_market(exclude_symbols=[]):
-    """Scans top 10 coins on 5M for S5_Scalp or S4_Momentum. Returns best symbol or None."""
-    top_coins = get_top_volume_coins(10)
+    top_coins = get_top_volume_coins()
     for symbol in top_coins:
         if symbol in exclude_symbols or symbol in FAILED_SYMBOLS:
             continue
-            
+
+        spread = get_spread_pct(symbol)
+        if spread is None or spread > MAX_SPREAD_PCT:
+            continue
+
         resp = get_candles(symbol, "5M", limit=100)
         if not resp or 'data' not in resp or 'klines' not in resp['data']:
             continue
-        
+
         klines = resp['data']['klines']
         if not klines or len(klines) < 50:
             continue
-            
-        df = pd.DataFrame(klines, columns=['time', 'open', 'close', 'high', 'low', 'volume'])
+
+        df          = pd.DataFrame(klines, columns=['time', 'open', 'close', 'high', 'low', 'volume'])
         df['close'] = pd.to_numeric(df['close']).astype(float)
-        close = df['close'].values
-        
-        # S5_Scalp: StochRSI < 20 and Cross Up
+        close       = df['close'].values
+
+        # Signal: S5_Scalp — StochRSI cross up from oversold
         try:
             fastk, fastd = talib.STOCHRSI(close, timeperiod=14, fastk_period=3, fastd_period=3, fastd_matype=0)
             if fastk[-1] < 20 and fastk[-1] > fastd[-1] and fastk[-2] <= fastd[-2]:
-                log(f"[SCANNER] 🔥 S5_Scalp detected on {symbol}")
+                log(f"[SCANNER] 🔥 S5_Scalp on {symbol} (Spread: {spread*100:.3f}%)")
                 return symbol
         except:
             pass
 
-        # S4_Momentum: MACD > Signal + RSI > 50
+        # Signal: S4_Momentum — MACD cross with RSI > 50
         try:
             macd, macd_signal, _ = talib.MACD(close, fastperiod=12, slowperiod=26, signalperiod=9)
-            rsi = talib.RSI(close, timeperiod=14)
-            if macd[-1] > macd_signal[-1] and rsi[-1] > 50 and macd[-2] <= macd_signal[-2]: # Fresh cross
-                log(f"[SCANNER] 🔥 S4_Momentum detected on {symbol}")
+            rsi                  = talib.RSI(close, timeperiod=14)
+            if macd[-1] > macd_signal[-1] and rsi[-1] > 50 and macd[-2] <= macd_signal[-2]:
+                log(f"[SCANNER] 🔥 S4_Momentum on {symbol} (Spread: {spread*100:.3f}%)")
                 return symbol
         except:
             pass
-            
+
     return None
 
 def execute_buy(symbol, usdt_amount):
-    # Retrieve precision and place market buy
     try:
-        # Force 2 decimals for USDT pairs to prevent precision errors
         amt_str = f"{usdt_amount:.2f}"
-        
-        body = {"symbol": symbol, "side": "BUY", "type": "MARKET", "amount": amt_str}
-        log(f"[DEBUG] Placing BUY Order: {body}")
+        body    = {"symbol": symbol, "side": "BUY", "type": "MARKET", "amount": amt_str}
+        log(f"[DEBUG] Placing BUY: {body}")
         resp = send_pionex_request("POST", "/api/v1/trade/order", body=body)
         if resp.get('result'):
-            log(f"[EXECUTE] ✅ BUY {symbol} for ${amt_str} USDT")
+            log(f"[EXECUTE] ✅ BUY {symbol} ${amt_str}")
             return True
         else:
             log(f"[EXECUTE] ❌ BUY FAILED: {resp}")
@@ -168,10 +191,9 @@ def execute_buy(symbol, usdt_amount):
         return False
 
 def get_coin_balance(symbol):
-    """Returns the free balance of the base currency for a given symbol (e.g. PEPE_USDT -> PEPE)."""
     try:
         coin = symbol.split('_')[0]
-        res = send_pionex_request("GET", "/api/v1/account/balances")
+        res  = send_pionex_request("GET", "/api/v1/account/balances")
         for item in res['data']['balances']:
             if item['coin'] == coin:
                 return float(item['free'])
@@ -180,32 +202,31 @@ def get_coin_balance(symbol):
         return 0.0
 
 def execute_sell(symbol):
-    # Retrieve base balance and place market sell
     try:
-        coin = symbol.split('_')[0]
-        res = send_pionex_request("GET", "/api/v1/account/balances")
+        coin    = symbol.split('_')[0]
+        res     = send_pionex_request("GET", "/api/v1/account/balances")
         balance = 0.0
         for b in res['data']['balances']:
             if b['coin'] == coin:
                 balance = float(b['free'])
                 break
-                
+
         if balance <= 0:
             return False
-            
-        sym_res = send_pionex_request("GET", "/api/v1/common/symbols")
-        base_prec = 4
+
+        sym_res    = send_pionex_request("GET", "/api/v1/common/symbols")
+        base_prec  = 4
         for s in sym_res['data']['symbols']:
             if s['symbol'] == symbol:
                 base_prec = int(s.get('basePrecision', 4))
                 break
-                
+
         if base_prec == 0:
             size_str = str(int(balance))
         else:
             multiplier = 10 ** base_prec
-            size_str = str(int(balance * multiplier) / multiplier)
-        
+            size_str   = str(int(balance * multiplier) / multiplier)
+
         body = {"symbol": symbol, "side": "SELL", "type": "MARKET", "size": size_str}
         resp = send_pionex_request("POST", "/api/v1/trade/order", body=body)
         if resp.get('result'):
@@ -217,136 +238,183 @@ def execute_sell(symbol):
         return False
 
 def run_v2_daemon():
-    active_positions = {} # {symbol: {'entry': 1.0, 'peak': 1.0, 'amount_usdt': 15.0}}
-    log(f"Initialize V2 Auto-Compounder (Multi-Trade). Max: {MAX_POSITIONS} Positions.")
+    active_positions = {}
+    log(f"Initialize V3 Auto-Compounder. Max: {MAX_POSITIONS} positions. Superpowers: ACTIVE ✅")
 
-    # Startup Resume Logic
+    # ── Resume open positions from state ─────────────
     try:
+        prev_positions = {}
+        try:
+            with open(STATE_FILE, "r") as f:
+                saved_state = json.load(f)
+                if saved_state.get('positions'):
+                    for p in saved_state['positions']:
+                        prev_positions[p['coin']] = p
+        except:
+            pass
+
         res = send_pionex_request("GET", "/api/v1/account/balances")
         for item in res['data']['balances']:
             coin = item['coin']
             free = float(item['free'])
             if coin != 'USDT' and free > 0:
                 symbol = f"{coin}_USDT"
-                price = get_ticker(symbol)
+                price  = get_ticker(symbol)
                 if price:
                     value = free * price
                     if value > 10.0:
-                        log(f"[RESUME] Found existing bag of {symbol} (${value:.2f}, Qty: {free}).")
+                        old_data    = prev_positions.get(symbol, {})
+                        entry_price = old_data.get('entry_price', price)
+                        start_time  = old_data.get('start_time', int(time.time()))
+
+                        log(f"[RESUME] {symbol} (${value:.2f}, Qty: {free})")
                         active_positions[symbol] = {
-                            'entry': price, 
-                            'peak': price,
-                            'quantity': free,
-                            'start_time': int(time.time()),
-                            'cost_basis': value
+                            'entry':      entry_price,
+                            'peak':       price,
+                            'quantity':   free,
+                            'start_time': start_time,
+                            'cost_basis': old_data.get('cost_basis', value),
+                            # Resumed positions use base params — no regime data available
+                            'tp_pct':     HARD_TP_PCT,
+                            'sl_pct':     HARD_STOP_PCT,
+                            'trail':      False,
+                            'trail_act':  0,
+                            'trail_dist': 0,
+                            'regime':     'resumed'
                         }
     except Exception as e:
         log(f"Startup check failed: {e}")
 
+    # ── Main loop ─────────────────────────────────────
     while True:
         try:
-            # 1. MONITOR ACTIVE POSITIONS
-            current_holdings = list(active_positions.keys())
-            for symbol in current_holdings:
-                pos = active_positions[symbol]
+            # ── Monitor open positions ────────────────
+            for symbol in list(active_positions.keys()):
+                pos           = active_positions[symbol]
                 current_price = get_ticker(symbol)
-                
-                if not current_price: continue
-                
+                if not current_price:
+                    continue
+
+                # Track new peak
                 if current_price > pos['peak']:
                     pos['peak'] = current_price
-                    
+
                 profit_pct = (current_price - pos['entry']) / pos['entry']
-                peak_pct = (pos['peak'] - pos['entry']) / pos['entry']
-                drop_from_peak = (pos['peak'] - current_price) / pos['peak']
-                
-                # Dynamic Size Calculation
-                current_value_usdt = pos['quantity'] * current_price
-                
-                # Check Exits
+
+                tp_pct     = pos.get('tp_pct',     HARD_TP_PCT)
+                sl_pct     = pos.get('sl_pct',     HARD_STOP_PCT)
+                trail      = pos.get('trail',      False)
+                trail_act  = pos.get('trail_act',  0)
+                trail_dist = pos.get('trail_dist', 0)
+
                 should_sell = False
-                reason = ""
-                
-                # Defense: Hard Stop Loss
-                if profit_pct <= -HARD_STOP_PCT:
-                    reason = f"HARD STOP ({profit_pct*100:.2f}%)"
+                reason      = ""
+
+                if profit_pct <= -sl_pct:
+                    reason      = f"STOP LOSS ({profit_pct*100:.2f}%) [Regime: {pos.get('regime','?')}]"
                     should_sell = True
-                # Offense: Trailing Stop
-                elif peak_pct >= TRAIL_ACTIVATION and drop_from_peak >= TRAIL_DISTANCE:
-                    reason = f"TRAILING STOP (Peak: {peak_pct*100:.2f}%)"
+
+                elif trail and pos['peak'] >= pos['entry'] * (1 + trail_act):
+                    # Trailing stop: price dropped trail_dist % from peak
+                    if current_price <= pos['peak'] * (1 - trail_dist):
+                        reason      = f"TRAIL STOP ({profit_pct*100:.2f}%) [Peak: {pos['peak']:.6f}]"
+                        should_sell = True
+
+                elif not trail and profit_pct >= tp_pct:
+                    reason      = f"TAKE PROFIT ({profit_pct*100:.2f}%) [Regime: {pos.get('regime','?')}]"
                     should_sell = True
-                    
+
                 if should_sell:
-                    log(f"[SELL] {symbol}: {reason} (Qty: {pos['quantity']})")
+                    log(f"[SELL] {symbol}: {reason}")
                     if execute_sell(symbol):
-                        save_trade_history(symbol, pos['entry'], current_price, profit_pct * 100)
+                        save_trade_history(
+                            symbol, pos['entry'], current_price,
+                            profit_pct * 100, pos.get('cost_basis', 21.50),
+                            pos.get('start_time')
+                        )
                         del active_positions[symbol]
-                        continue 
-                
-                # Log PnL periodically (every ~30s is fine)
-                # log(f"[{symbol}] PnL: {profit_pct*100:.2f}% | Val: ${current_value_usdt:.2f}")
-            
-            # 2. HUNT FOR NEW TRADES
+
+            # ── Hunt for new entries ──────────────────
             if len(active_positions) < MAX_POSITIONS:
                 usdt = get_usdt_balance()
-                
-                # Compounding Logic: Trade Size = MAX(25% of Total Equity, $15.00)
+
+                # Total equity = USDT + value of open positions
                 total_equity = usdt
                 for sym in active_positions:
-                    # Use dynamic current value
-                    total_equity += active_positions[sym]['quantity'] * get_ticker(sym)
-                    
-                target_size = total_equity * 0.25
-                trade_size = max(MIN_TRADE_SIZE, target_size)
-                
-                # Check execution feasibility: Do we actually have the required free USDT?
+                    price = get_ticker(sym)
+                    if price:
+                        total_equity += active_positions[sym]['quantity'] * price
+
+                target_size = total_equity / MAX_POSITIONS
+                trade_size  = max(MIN_TRADE_SIZE, target_size)
+
                 if usdt >= trade_size:
-                    log(f"[HUNTING] Active: {len(active_positions)}/{MAX_POSITIONS}. Scan Size: ${trade_size:.2f} (Equity: ${total_equity:.2f})")
-                    
+                    log(f"[HUNTING] {len(active_positions)}/{MAX_POSITIONS} active. "
+                        f"Scan size: ${trade_size:.2f} (Equity: ${total_equity:.2f})")
+
+                    # ── BUG FIX: was mis-indented in original ──
                     target = scan_market(exclude_symbols=list(active_positions.keys()))
+
                     if target:
-                        if execute_buy(target, trade_size):
-                            # Sleep to let balance update
-                            time.sleep(3)
-                            price = get_ticker(target)
-                            qty = get_coin_balance(target)
-                            
-                            if price and qty > 0:
-                                active_positions[target] = {
-                                    'entry': price,
-                                    'peak': price,
-                                    'quantity': qty,
-                                    'start_time': int(time.time()),
-                                    'cost_basis': trade_size
-                                }
-                                log(f"[DEPLOYED] Added {target} at {price} (Qty: {qty})")
-                else:
-                    pass # Hold fire. Free USDT is insufficient to meet the calculated Trade Size.
-            
-            # 3. UPDATE STATE FILE
+                        # ── Superpowers regime check ───────────
+                        params = get_trade_params(target)
+
+                        if not params.trade:
+                            log(f"[SUPERPOWERS] ⛔ Blocked {target}: {params.reason}")
+                        else:
+                            trade_size_adjusted = trade_size * params.size_mult
+                            log(f"[SUPERPOWERS] ✅ {target} | Regime: {params.regime} | "
+                                f"TP: {params.tp_pct*100:.1f}% SL: {params.sl_pct*100:.1f}% "
+                                f"Trail: {params.trail} | Size: ${trade_size_adjusted:.2f}")
+
+                            if execute_buy(target, trade_size_adjusted):
+                                time.sleep(3)
+                                price = get_ticker(target)
+                                qty   = get_coin_balance(target)
+
+                                if price and qty > 0:
+                                    active_positions[target] = {
+                                        'entry':      price,
+                                        'peak':       price,
+                                        'quantity':   qty,
+                                        'start_time': int(time.time()),
+                                        'cost_basis': trade_size_adjusted,
+                                        'tp_pct':     params.tp_pct,
+                                        'sl_pct':     params.sl_pct,
+                                        'trail':      params.trail,
+                                        'trail_act':  params.trail_act,
+                                        'trail_dist': params.trail_dist,
+                                        'regime':     params.regime
+                                    }
+                                    log(f"[DEPLOYED] {target} @ {price} | "
+                                        f"Regime: {params.regime} | Reason: {params.reason}")
+
+            # ── Save dashboard state ──────────────────
             dashboard_pos = []
             for sym, pos in active_positions.items():
                 curr = get_ticker(sym) or pos['peak']
-                pnl = (curr - pos['entry']) / pos['entry'] * 100
-                current_val = pos['quantity'] * curr
+                pnl  = (curr - pos['entry']) / pos['entry'] * 100
                 dashboard_pos.append({
-                    "coin": sym,
-                    "entry_price": pos['entry'],
+                    "coin":          sym,
+                    "entry_price":   pos['entry'],
                     "current_price": curr,
                     "highest_price": pos['peak'],
-                    "pnl_pct": pnl,
-                    "amount_usdt": current_val,
-                    "cost_basis": pos.get('cost_basis', current_val),
-                    "start_time": pos.get('start_time', int(time.time()))
+                    "pnl_pct":       pnl,
+                    "amount_usdt":   pos['quantity'] * curr,
+                    "cost_basis":    pos.get('cost_basis', pos['quantity'] * curr),
+                    "start_time":    pos.get('start_time', int(time.time())),
+                    "regime":        pos.get('regime', 'unknown'),
+                    "tp_pct":        pos.get('tp_pct', HARD_TP_PCT),
+                    "sl_pct":        pos.get('sl_pct', HARD_STOP_PCT),
                 })
-            
+
             state_status = "DEPLOYED" if active_positions else "HUNTING"
             save_state(state_status, active_positions=dashboard_pos)
-            
-            time.sleep(30) 
-            
+
+            time.sleep(30)
+
         except Exception as e:
-            log(f"Loop Error: {e}")
+            log(f"[ERROR] Loop error: {e}")
             time.sleep(60)
 
 if __name__ == '__main__':

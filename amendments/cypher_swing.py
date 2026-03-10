@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 from dataclasses import dataclass
-from binance_api_swing import send_binance_request as send_pionex_request, get_candles
+from pionex_api_template import send_pionex_request, get_candles
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -33,8 +33,8 @@ SWING_HISTORY_FILE  = "swing_history.json"
 
 # Capital
 MAX_SWING_POSITIONS = 2        # Only 2 concurrent — holds are longer
-MIN_SWING_SIZE      = 20.0     # Minimum trade size USDC
-SWING_CAPITAL_POOL  = 60.0     # Max USDC allocated to swing trades total
+MIN_SWING_SIZE      = 20.0     # Minimum trade size USDT
+SWING_CAPITAL_POOL  = 60.0     # Max USDT allocated to swing trades total
 
 # Exit parameters (adjusted by regime via superpowers)
 BASE_SWING_TP       = 0.025    # +2.5% take profit
@@ -50,14 +50,14 @@ VOLUME_MULT         = 1.2      # Volume must be > 1.2x 20-period average
 
 # Universe — liquid coins suitable for 4H swings
 SWING_UNIVERSE = [
-    "BTC_USDC",
-    "ETH_USDC",
-    "SOL_USDC",
-    "XRP_USDC",
-    "ADA_USDC",
-    "LINK_USDC",
-    "AVAX_USDC",
-    "BNB_USDC",
+    "BTC_USDT",
+    "ETH_USDT",
+    "SOL_USDT",
+    "XRP_USDT",
+    "ADA_USDT",
+    "LINK_USDT",
+    "AVAX_USDT",
+    "BNB_USDT",
 ]
 
 # ── Data Classes ──────────────────────────────────────────────────────────────
@@ -105,7 +105,7 @@ def log(msg: str):
 def get_4h_candles(symbol: str, limit: int = 100) -> pd.DataFrame | None:
     """Fetch 4H OHLCV candles and return as DataFrame."""
     try:
-        resp = get_candles(symbol, "4h", limit=limit)
+        resp = get_candles(symbol, "4H", limit=limit)
         if not resp or 'data' not in resp or 'klines' not in resp['data']:
             return None
         klines = resp['data']['klines']
@@ -125,17 +125,17 @@ def get_4h_candles(symbol: str, limit: int = 100) -> pd.DataFrame | None:
 
 def get_ticker(symbol: str) -> float | None:
     try:
-        res = send_pionex_request("GET", "/api/v3/ticker/price", params={"symbol": symbol.replace("_", "")})
-        return float(res['data']['price'])
+        res = send_pionex_request("GET", "/api/v1/market/tickers", params={"symbol": symbol})
+        return float(res['data']['tickers'][0]['close'])
     except:
         return None
 
 
-def get_usdc_balance() -> float:
+def get_usdt_balance() -> float:
     try:
-        res = send_pionex_request("GET", "/api/v3/account")
+        res = send_pionex_request("GET", "/api/v1/account/balances")
         for item in res['data']['balances']:
-            if item.get('coin', item.get('asset')) == 'USDC':
+            if item['coin'] == 'USDT':
                 return float(item['free'])
         return 0.0
     except:
@@ -145,9 +145,9 @@ def get_usdc_balance() -> float:
 def get_coin_balance(symbol: str) -> float:
     try:
         coin = symbol.split('_')[0]
-        res  = send_pionex_request("GET", "/api/v3/account")
+        res  = send_pionex_request("GET", "/api/v1/account/balances")
         for item in res['data']['balances']:
-            if item.get('coin', item.get('asset')) == coin:
+            if item['coin'] == coin:
                 return float(item['free'])
         return 0.0
     except:
@@ -278,16 +278,16 @@ def scan_swing_universe(exclude_symbols: list) -> SwingSignal | None:
 
 # ── Execution ─────────────────────────────────────────────────────────────────
 
-def execute_buy(symbol: str, usdc_amount: float) -> bool:
+def execute_buy(symbol: str, usdt_amount: float) -> bool:
     try:
         body = {
             "symbol": symbol,
             "side":   "BUY",
             "type":   "MARKET",
-            "amount": f"{usdc_amount:.2f}"
+            "amount": f"{usdt_amount:.2f}"
         }
-        log(f"[ORDER] BUY {symbol} ${usdc_amount:.2f}")
-        resp = send_pionex_request("POST", "/api/v3/order", params={"symbol": symbol.replace("_", ""), "side": "BUY", "type": "MARKET", "quoteOrderQty": usdc_amount})
+        log(f"[ORDER] BUY {symbol} ${usdt_amount:.2f}")
+        resp = send_pionex_request("POST", "/api/v1/trade/order", body=body)
         if resp.get('result'):
             log(f"[ORDER] ✅ BUY confirmed {symbol}")
             return True
@@ -301,7 +301,7 @@ def execute_buy(symbol: str, usdc_amount: float) -> bool:
 def execute_sell(symbol: str) -> bool:
     try:
         coin    = symbol.split('_')[0]
-        res     = send_pionex_request("GET", "/api/v3/account")
+        res     = send_pionex_request("GET", "/api/v1/account/balances")
         balance = 0.0
         for b in res['data']['balances']:
             if b['coin'] == coin:
@@ -326,7 +326,7 @@ def execute_sell(symbol: str) -> bool:
             size_str   = str(int(balance * multiplier) / multiplier)
 
         body = {"symbol": symbol, "side": "SELL", "type": "MARKET", "size": size_str}
-        resp = send_pionex_request("POST", "/api/v3/order", params={"symbol": symbol.replace("_", ""), "side": "BUY", "type": "MARKET", "quoteOrderQty": usdc_amount})
+        resp = send_pionex_request("POST", "/api/v1/trade/order", body=body)
         if resp.get('result'):
             log(f"[ORDER] ✅ SELL confirmed {symbol} size {size_str}")
             return True
@@ -340,7 +340,7 @@ def execute_sell(symbol: str) -> bool:
 
 def save_trade(pos: SwingPosition, exit_price: float, exit_reason: str):
     pnl_pct  = (exit_price - pos.entry) / pos.entry * 100
-    pnl_usdc = pos.cost_basis * (pnl_pct / 100)
+    pnl_usdt = pos.cost_basis * (pnl_pct / 100)
 
     trade = {
         "timestamp":    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -350,7 +350,7 @@ def save_trade(pos: SwingPosition, exit_price: float, exit_reason: str):
         "entry":        pos.entry,
         "exit":         exit_price,
         "pnl_pct":      round(pnl_pct, 4),
-        "pnl_usdc":     round(pnl_usdc, 4),
+        "pnl_usdt":     round(pnl_usdt, 4),
         "cost_basis":   pos.cost_basis,
         "candles_held": pos.candles_held,
         "exit_reason":  exit_reason,
@@ -368,7 +368,7 @@ def save_trade(pos: SwingPosition, exit_price: float, exit_reason: str):
         json.dump(history[-5000:], f, indent=2)
 
     log(f"[HISTORY] {pos.symbol} {trade['result']} | "
-        f"PnL: {pnl_pct:+.2f}% (${pnl_usdc:+.2f}) | "
+        f"PnL: {pnl_pct:+.2f}% (${pnl_usdt:+.2f}) | "
         f"Held: {pos.candles_held} candles | Reason: {exit_reason}")
 
 
@@ -479,15 +479,15 @@ class SwingDaemon:
         if len(self.active_positions) >= MAX_SWING_POSITIONS:
             return
 
-        usdc = get_usdc_balance()
+        usdt = get_usdt_balance()
         # Don't use more than the allocated swing capital pool
-        available = min(usdc, SWING_CAPITAL_POOL)
+        available = min(usdt, SWING_CAPITAL_POOL)
 
         position_size = available / MAX_SWING_POSITIONS
         trade_size    = max(MIN_SWING_SIZE, position_size)
 
-        if usdc < trade_size:
-            log(f"[HUNTING] Insufficient USDC (${usdc:.2f}) for swing trade (${trade_size:.2f})")
+        if usdt < trade_size:
+            log(f"[HUNTING] Insufficient USDT (${usdt:.2f}) for swing trade (${trade_size:.2f})")
             return
 
         log(f"[HUNTING] Scanning 4H universe... "

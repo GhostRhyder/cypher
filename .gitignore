@@ -1,6 +1,25 @@
-.env
+# Python
 __pycache__/
+*.pyc
+
+# Logs
 *.log
-.openclaw/
-state.jsonhistory.json
-memory/
+
+# State & History
+*.json
+*.bak
+
+# Local Machine Specific
+.DS_Store
+
+# Cypher Workspace - Do not commit sensitive or large files
+/atlas/
+/ta-lib/
+*.tar.gz
+history_recovered.json
+swing_state.json
+state.json
+history.json
+war_room_log.json
+MEMORY.md
+USER.md

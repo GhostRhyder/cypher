@@ -1090,5 +1090,31 @@
     "pnl_usdt": 0.37552145820411775,
     "cost_basis": 44.15716751609702,
     "result": "WIN"
+  },
+  {
+    "timestamp": "2026-03-10 17:56:26",
+    "version": "V3",
+    "direction": "LONG",
+    "trade_length": "376m",
+    "coin": "ADA_USDT",
+    "entry": 0.2662,
+    "exit": 0.2722,
+    "pnl_pct": 2.053944402704735,
+    "pnl_usdt": 0.9129123894986931,
+    "cost_basis": 44.446791660793025,
+    "result": "WIN"
+  },
+  {
+    "timestamp": "2026-03-10 17:56:27",
+    "version": "V3",
+    "direction": "LONG",
+    "trade_length": "375m",
+    "coin": "ETH_USDT",
+    "entry": 2056.05,
+    "exit": 2081.43,
+    "pnl_pct": 1.0344057780695826,
+    "pnl_usdt": 0.34469460424477855,
+    "cost_basis": 33.3229581226867,
+    "result": "WIN"
   }
 ]

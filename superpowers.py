@@ -321,6 +321,111 @@ def get_trade_params(symbol: str, _send_pionex_request=None, _get_candles=None) 
 
     # ── Ranging: choppy conditions ────────────────────
     if r.is_ranging:
+        # Override for BTC_USDT and ETH_USDT based on Ghost's optimizations (Mar 16 2026)
+        if symbol == "BTC_USDT":
+            return TradeParams(
+                trade=True,
+                tp_pct=0.009,       # 0.9% - Ghost optimized
+                sl_pct=0.003,       # 0.3% - Ghost optimized
+                trail=False,
+                trail_act=0,
+                trail_dist=0,
+                size_mult=1.0,      # High conviction optimization
+                regime="ranging",
+                reason="Ghost Optimization: BTC 0.9% TP / 0.3% SL override applied."
+            )
+        
+        if symbol == "ETH_USDT":
+            return TradeParams(
+                trade=True,
+                tp_pct=0.010,       # 1.0% - Ghost optimized
+                sl_pct=0.005,       # 0.5% - Ghost optimized
+                trail=False,
+                trail_act=0,
+                trail_dist=0,
+                size_mult=1.0,      # High conviction optimization
+                regime="ranging",
+                reason="Ghost Optimization: ETH 1.0% TP / 0.5% SL override applied."
+            )
+
+        if symbol == "SOL_USDT":
+            return TradeParams(
+                trade=True,
+                tp_pct=0.009,       # 0.9% - Ghost optimized
+                sl_pct=0.005,       # 0.5% - Ghost optimized
+                trail=False,
+                trail_act=0,
+                trail_dist=0,
+                size_mult=1.0,      # High conviction optimization
+                regime="ranging",
+                reason="Ghost Optimization: SOL 0.9% TP / 0.5% SL override applied."
+            )
+
+        if symbol == "XRP_USDT":
+            return TradeParams(
+                trade=True,
+                tp_pct=0.014,       # 1.4% - Ghost optimized
+                sl_pct=0.009,       # 0.9% - Ghost optimized
+                trail=False,
+                trail_act=0,
+                trail_dist=0,
+                size_mult=1.0,      # High conviction optimization
+                regime="ranging",
+                reason="Ghost Optimization: XRP 1.4% TP / 0.9% SL override applied."
+            )
+
+        if symbol == "ADA_USDT":
+            return TradeParams(
+                trade=True,
+                tp_pct=0.008,       # 0.8% - Ghost optimized
+                sl_pct=0.006,       # 0.6% - Ghost optimized
+                trail=False,
+                trail_act=0,
+                trail_dist=0,
+                size_mult=1.0,      # High conviction optimization
+                regime="ranging",
+                reason="Ghost Optimization: ADA 0.8% TP / 0.6% SL override applied."
+            )
+
+        if symbol == "TRX_USDT":
+            return TradeParams(
+                trade=True,
+                tp_pct=0.008,       # 0.8% - Ghost optimized
+                sl_pct=0.008,       # 0.8% - Ghost optimized
+                trail=False,
+                trail_act=0,
+                trail_dist=0,
+                size_mult=1.0,      # High conviction optimization
+                regime="ranging",
+                reason="Ghost Optimization: TRX 0.8% TP / 0.8% SL override applied."
+            )
+
+        if symbol == "LINK_USDT":
+            return TradeParams(
+                trade=True,
+                tp_pct=0.015,       # 1.5% - Ghost optimized
+                sl_pct=0.007,       # 0.7% - Ghost optimized
+                trail=False,
+                trail_act=0,
+                trail_dist=0,
+                size_mult=1.0,      # High conviction optimization
+                regime="ranging",
+                reason="Ghost Optimization: LINK 1.5% TP / 0.7% SL override applied."
+            )
+
+        if symbol == "AVAX_USDT":
+            return TradeParams(
+                trade=True,
+                tp_pct=0.005,       # 0.5% - Ghost optimized
+                sl_pct=0.005,       # 0.5% - Ghost optimized
+                trail=False,
+                trail_act=0,
+                trail_dist=0,
+                size_mult=1.0,      # High conviction optimization
+                regime="ranging",
+                reason="Ghost Optimization: AVAX 0.5% TP / 0.5% SL override applied."
+            )
+
         return TradeParams(
             trade=True,
             tp_pct=0.008,       # 0.8% (was 0.006)

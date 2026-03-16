@@ -3196,5 +3196,44 @@
     "pnl_usdt": -0.27488477198226846,
     "cost_basis": 37.696473847052175,
     "result": "LOSS"
+  },
+  {
+    "timestamp": "2026-03-16 17:48:15",
+    "version": "V3",
+    "direction": "LONG",
+    "trade_length": "42m",
+    "coin": "ADA_USDT",
+    "entry": 0.2839,
+    "exit": 0.2855,
+    "pnl_pct": 0.36357872490313153,
+    "pnl_usdt": 0.1828233960679931,
+    "cost_basis": 50.28440432445624,
+    "result": "WIN"
+  },
+  {
+    "timestamp": "2026-03-16 17:52:27",
+    "version": "V3",
+    "direction": "LONG",
+    "trade_length": "51m",
+    "coin": "SOL_USDT",
+    "entry": 93.23,
+    "exit": 94.0,
+    "pnl_pct": 0.6259144052343624,
+    "pnl_usdt": 0.23560502532677263,
+    "cost_basis": 37.641732376898176,
+    "result": "WIN"
+  },
+  {
+    "timestamp": "2026-03-16 18:34:00",
+    "version": "V3",
+    "direction": "LONG",
+    "trade_length": "88m",
+    "coin": "XRP_USDT",
+    "entry": 1.4948,
+    "exit": 1.5063,
+    "pnl_pct": 0.5693336901257737,
+    "pnl_usdt": 0.286349109575782,
+    "cost_basis": 50.29547953020724,
+    "result": "WIN"
   }
 ]

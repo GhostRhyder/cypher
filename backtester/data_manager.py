@@ -6,29 +6,15 @@ from datetime import datetime
 class DataManager:
     BASE_URL = "https://api.binance.com/api/v3"
     
-    # Hardcoded fallback list in case Binance API is unreachable
-    FALLBACK_COINS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "AVAXUSDT", "DOGEUSDT", "DOTUSDT", "LINKUSDT"]
+    # Hardcoded list to match Cypher's allowed universe
+    CYPHER_UNIVERSE = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ADAUSDT", "TRXUSDT", "XRPUSDT", "LINKUSDT", "AVAXUSDT"]
 
     def get_top_volume_coins(self, limit=10):
-        """Fetch top 10 coins by 24h volume from Binance with fallback."""
-        try:
-            url = f"{self.BASE_URL}/ticker/24hr"
-            response = requests.get(url, timeout=10)
-            if response.status_code != 200:
-                print(f"Binance API returned status {response.status_code}")
-                return self.FALLBACK_COINS
-                
-            data = response.json()
-            # Filter for USDT pairs and sort by quoteVolume
-            usdt_pairs = [item for item in data if item['symbol'].endswith('USDT') and 'UP' not in item['symbol'] and 'DOWN' not in item['symbol']]
-            sorted_pairs = sorted(usdt_pairs, key=lambda x: float(x['quoteVolume']), reverse=True)
-            return [item['symbol'] for item in sorted_pairs[:limit]]
-        except Exception as e:
-            print(f"Error fetching top coins: {e}")
-            return self.FALLBACK_COINS
+        """Returns the specific coins Ghost needs to optimize for the daemon."""
+        return self.CYPHER_UNIVERSE
 
-    def fetch_candles(self, symbol, interval="5m", limit=500):
-        """Fetch historical klines from Binance with reduced limit for faster backtests."""
+    def fetch_candles(self, symbol, interval="5m", limit=2000):
+        """Fetch historical klines from Binance. Increased limit to 2000 for ~7 days of 5m data."""
         try:
             symbol = symbol.replace("_", "")
             url = f"{self.BASE_URL}/klines"

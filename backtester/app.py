@@ -10,7 +10,7 @@ dm = DataManager()
 
 @app.route('/')
 def index():
-    # Render index.html from the same directory
+    # Render index.html from the current directory
     return render_template('index.html')
 
 @app.route('/api/top_coins')
@@ -60,4 +60,4 @@ def run_optimization():
     return jsonify(results)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=8080, debug=True)

@@ -230,6 +230,7 @@ GHOST_CONFIG = {
         "default":     {"tp": 0.008, "sl": 0.006}
     },
     "DOGE_USDT": {
+        "S4_Momentum": {"tp": 0.008, "sl": 0.007}, # Ghost Optimized S4
         "S5_Scalp":    {"tp": 0.015, "sl": 0.003}, # Ghost Optimized S5
         "default":     {"tp": 0.008, "sl": 0.005}
     },

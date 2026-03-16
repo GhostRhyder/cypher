@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CYPHER // TRADE SPOTTER</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&family=Orbitron:wght@400;700;900&display=swap');
+
+  :root {
+    --bg:        #080b0f;
+    --bg2:       #0d1117;
+    --bg3:       #111820;
+    --border:    #1e2d3d;
+    --border2:   #243447;
+    --trend:     #00d4aa;
+    --trend-dim: #00d4aa22;
+    --range:     #f0b429;
+    --range-dim: #f0b42922;
+    --bull:      #26de81;
+    --bear:      #fc5c65;
+    --text:      #8899aa;
+    --text2:     #ccd9e8;
+    --text3:     #e8f0f8;
+    --cyan:      #00b8d9;
+    --scan:      #00d4aa;
+    --dim:       #334455;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text2);
+    font-family: 'Rajdhani', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: 'Orbitron', monospace;
+    font-size: 18px;
+    font-weight: 900;
+    letter-spacing: 4px;
+    color: var(--trend);
+    text-shadow: 0 0 20px var(--trend);
+  }
+
+  .logo span {
+    color: var(--text);
+    font-weight: 400;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border: 1px solid var(--border2);
+    border-radius: 2px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    color: var(--text);
+    background: var(--bg3);
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--bull);
+    box-shadow: 0 0 8px var(--bull);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .scan-time {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    color: var(--dim);
+  }
+
+  #clock {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 13px;
+    color: var(--trend);
+  }
+
+  /* Main layout */
+  .main {
+    padding: 24px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+
+  /* Section header */
+  .section-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .section-label .tag {
+    font-family: 'Orbitron', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    padding: 4px 10px;
+    border-radius: 1px;
+  }
+
+  .tag-trend {
+    color: var(--trend);
+    border: 1px solid var(--trend);
+    background: var(--trend-dim);
+    text-shadow: 0 0 10px var(--trend);
+  }
+
+  .tag-range {
+    color: var(--range);
+    border: 1px solid var(--range);
+    background: var(--range-dim);
+    text-shadow: 0 0 10px var(--range);
+  }
+
+  .section-line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(to right, var(--border2), transparent);
+  }
+
+  .section-count {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    color: var(--dim);
+  }
+
+  /* Card grid */
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  /* Trade card */
+  .trade-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+    transition: border-color 0.2s, transform 0.2s;
+    cursor: pointer;
+  }
+
+  .trade-card:hover {
+    transform: translateY(-2px);
+  }
+
+  .trade-card.trend-card {
+    border-top: 2px solid var(--trend);
+  }
+
+  .trade-card.trend-card:hover {
+    border-color: var(--trend);
+    box-shadow: 0 8px 32px rgba(0,212,170,0.1);
+  }
+
+  .trade-card.range-card {
+    border-top: 2px solid var(--range);
+  }
+
+  .trade-card.range-card:hover {
+    border-color: var(--range);
+    box-shadow: 0 8px 32px rgba(240,180,41,0.1);
+  }
+
+  .trade-card.empty-card {
+    border-style: dashed;
+    border-color: var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .empty-card:hover {
+    transform: none !important;
+  }
+
+  .empty-text {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    color: var(--dim);
+    text-align: center;
+    line-height: 1.8;
+  }
+
+  /* Card header */
+  .card-header {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  .coin-name {
+    font-family: 'Orbitron', monospace;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text3);
+    letter-spacing: 1px;
+  }
+
+  .coin-sub {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: var(--dim);
+    margin-top: 2px;
+  }
+
+  .card-badge {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
+
+  .timeframe-badge {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 1px;
+    border: 1px solid var(--border2);
+    color: var(--text);
+    background: var(--bg3);
+  }
+
+  .confidence-badge {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: var(--bull);
+  }
+
+  /* Price section */
+  .card-price {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .price-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+
+  .price-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    color: var(--dim);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .price-value {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 13px;
+    color: var(--text3);
+  }
+
+  .entry-price {
+    font-size: 16px;
+    color: var(--cyan);
+  }
+
+  .tp-price { color: var(--bull); }
+  .sl-price { color: var(--bear); }
+
+  /* RR badge */
+  .rr-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+
+  .rr-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    color: var(--dim);
+    letter-spacing: 1px;
+  }
+
+  .rr-value {
+    font-family: 'Orbitron', monospace;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .rr-good { color: var(--bull); }
+  .rr-ok   { color: var(--range); }
+  .rr-bad  { color: var(--bear); }
+
+  .pct-badges {
+    display: flex;
+    gap: 8px;
+  }
+
+  .pct-badge {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 1px;
+  }
+
+  .pct-tp {
+    color: var(--bull);
+    background: rgba(38,222,129,0.1);
+    border: 1px solid rgba(38,222,129,0.2);
+  }
+
+  .pct-sl {
+    color: var(--bear);
+    background: rgba(252,92,101,0.1);
+    border: 1px solid rgba(252,92,101,0.2);
+  }
+
+  /* Thesis */
+  .card-thesis {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .thesis-text {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text);
+    line-height: 1.5;
+  }
+
+  /* Signals */
+  .card-signals {
+    padding: 10px 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .signal-chip {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    padding: 3px 7px;
+    border-radius: 1px;
+    border: 1px solid var(--border2);
+    color: var(--text);
+    background: var(--bg3);
+    letter-spacing: 0.5px;
+  }
+
+  .signal-chip.active {
+    border-color: var(--cyan);
+    color: var(--cyan);
+    background: rgba(0,184,217,0.08);
+  }
+
+  /* Card footer */
+  .card-footer {
+    padding: 10px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg3);
+  }
+
+  .posted-time {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    color: var(--dim);
+  }
+
+  .expires-badge {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    color: var(--range);
+  }
+
+  /* Mini sparkline */
+  .sparkline {
+    padding: 0 16px 12px;
+  }
+
+  .spark-bar-container {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 28px;
+  }
+
+  .spark-bar {
+    flex: 1;
+    border-radius: 1px;
+    min-height: 2px;
+    transition: opacity 0.2s;
+  }
+
+  /* Bottom bar */
+  .bottom-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 10px 28px;
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 100;
+  }
+
+  .bottom-note {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: var(--dim);
+  }
+
+  .bottom-note span {
+    color: var(--trend);
+  }
+
+  .refresh-btn {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    padding: 6px 16px;
+    background: transparent;
+    border: 1px solid var(--trend);
+    color: var(--trend);
+    border-radius: 1px;
+    cursor: pointer;
+    letter-spacing: 2px;
+    transition: all 0.2s;
+  }
+
+  .refresh-btn:hover {
+    background: var(--trend-dim);
+    box-shadow: 0 0 16px var(--trend-dim);
+  }
+
+  /* Scanning animation */
+  @keyframes scan-line {
+    0%   { top: 0; opacity: 1; }
+    100% { top: 100%; opacity: 0; }
+  }
+
+  .scanning-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(8,11,15,0.95);
+    z-index: 500;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+  }
+
+  .scan-text {
+    font-family: 'Orbitron', monospace;
+    font-size: 14px;
+    letter-spacing: 6px;
+    color: var(--trend);
+    text-shadow: 0 0 20px var(--trend);
+  }
+
+  .scan-progress {
+    width: 300px;
+    height: 1px;
+    background: var(--border);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .scan-progress-bar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    background: var(--trend);
+    box-shadow: 0 0 10px var(--trend);
+    animation: loading 2s ease-in-out forwards;
+  }
+
+  @keyframes loading {
+    0%   { width: 0%; }
+    30%  { width: 45%; }
+    60%  { width: 72%; }
+    80%  { width: 88%; }
+    100% { width: 100%; }
+  }
+
+  .scan-log {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: var(--dim);
+    text-align: center;
+    line-height: 1.8;
+  }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- Scanning overlay -->
+<div class="scanning-overlay" id="scanOverlay">
+  <div class="scan-text">CYPHER // SCANNING</div>
+  <div class="scan-progress"><div class="scan-progress-bar"></div></div>
+  <div class="scan-log" id="scanLog">
+    Initialising market scanner...<br>
+    Loading Pionex futures universe...<br>
+    <span id="scanStatus">Analysing 4H timeframes...</span>
+  </div>
+</div>
+
+<!-- Header -->
+<div class="header">
+  <div class="logo">CYPHER <span>// TRADE SPOTTER</span></div>
+  <div class="header-right">
+    <div class="status-pill">
+      <div class="status-dot"></div>
+      LIVE SCAN
+    </div>
+    <div id="clock" class="scan-time">--:--:--</div>
+  </div>
+</div>
+
+<!-- Main -->
+<div class="main" style="padding-bottom: 60px;">
+
+  <!-- Trend Trades -->
+  <div>
+    <div class="section-label">
+      <div class="tag tag-trend">TREND TRADES</div>
+      <div class="section-line"></div>
+      <div class="section-count" id="trendCount">0/3</div>
+    </div>
+    <div class="card-grid" id="trendGrid">
+      <!-- populated by JS -->
+    </div>
+  </div>
+
+  <!-- Sideways / Range Trades -->
+  <div>
+    <div class="section-label">
+      <div class="tag tag-range">RANGE TRADES</div>
+      <div class="section-line"></div>
+      <div class="section-count" id="rangeCount">0/3</div>
+    </div>
+    <div class="card-grid" id="rangeGrid">
+      <!-- populated by JS -->
+    </div>
+  </div>
+
+</div>
+
+<!-- Bottom bar -->
+<div class="bottom-bar">
+  <div class="bottom-note">
+    ⚠ CYPHER SPOTS THE TRADE. <span>YOU MAKE THE CALL.</span> — All ideas expire after 4H if not acted on.
+  </div>
+  <button class="refresh-btn" onclick="rescan()">↻ RESCAN</button>
+</div>
+
+<script>
+// ── Clock ─────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toUTCString().slice(17, 25) + ' UTC';
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── Trade Data ────────────────────────────────────────
+// In production this gets replaced by Cypher's live scanner output
+// Format: JSON written to trades.json by cypher_spotter.py
+// For now — realistic demo data showing the concept
+
+const TREND_TRADES = [
+  {
+    coin:       "SOL/USDT",
+    type:       "LONG",
+    timeframe:  "4H",
+    entry:      "136.40",
+    tp:         "148.20",
+    sl:         "131.50",
+    tp_pct:     "+8.7",
+    sl_pct:     "-3.6",
+    rr:         "2.4",
+    confidence: "78%",
+    thesis:     "Breaking 4H descending wedge on rising volume. EMA20 crossing above EMA50. MACD histogram turning positive for first time in 6 days. Momentum building.",
+    signals:    ["WEDGE BREAK", "EMA CROSS", "MACD↑", "VOL SURGE"],
+    active:     ["WEDGE BREAK", "EMA CROSS"],
+    posted:     "14 min ago",
+    expires:    "3h 46m",
+    spark:      [3,2,2,3,2,1,2,3,4,5,6,5,6,7,8,7,8,9,10,11]
+  },
+  {
+    coin:       "AVAX/USDT",
+    type:       "LONG",
+    timeframe:  "4H",
+    entry:      "28.85",
+    tp:         "32.40",
+    sl:         "27.20",
+    tp_pct:     "+12.3",
+    sl_pct:     "-5.7",
+    rr:         "2.2",
+    confidence: "71%",
+    thesis:     "Strong bounce off key $28 support — held 3 times in 2 weeks. RSI reset from oversold. Weekly trend still intact. Potential re-test of $32 resistance.",
+    signals:    ["SUPPORT HOLD", "RSI RESET", "WEEKLY BULL", "BOUNCE"],
+    active:     ["SUPPORT HOLD", "RSI RESET"],
+    posted:     "38 min ago",
+    expires:    "3h 22m",
+    spark:      [8,7,6,5,4,3,2,3,4,3,2,3,4,5,6,5,6,7,7,8]
+  },
+  {
+    coin:       "LINK/USDT",
+    type:       "LONG",
+    timeframe:  "1D",
+    entry:      "11.20",
+    tp:         "13.80",
+    sl:         "10.40",
+    tp_pct:     "+23.2",
+    sl_pct:     "-7.1",
+    rr:         "3.3",
+    confidence: "65%",
+    thesis:     "Daily pennant formation near completion. Volume declining into apex — classic squeeze setup. If breaks above $11.40 with volume, targeting previous high at $13.80.",
+    signals:    ["PENNANT", "VOL SQUEEZE", "DAILY TF", "KEY LEVEL"],
+    active:     ["PENNANT", "VOL SQUEEZE"],
+    posted:     "1h 12m ago",
+    expires:    "DAILY",
+    spark:      [6,7,8,7,8,7,6,7,7,6,7,7,6,7,7,7,6,7,7,8]
+  }
+];
+
+const RANGE_TRADES = [
+  {
+    coin:       "XRP/USDT",
+    type:       "RANGE",
+    timeframe:  "4H",
+    entry:      "0.5180",
+    tp:         "0.5380",
+    sl:         "0.5080",
+    tp_pct:     "+3.9",
+    sl_pct:     "-1.9",
+    rr:         "2.0",
+    confidence: "74%",
+    thesis:     "Clean $0.508–$0.538 range established over 8 days. ADX below 20 confirming no trend. Currently at range midpoint — buy low sell high. Ideal grid or manual range play.",
+    signals:    ["LOW ADX", "RANGE BOUND", "BB SQUEEZE", "MEAN REVERT"],
+    active:     ["LOW ADX", "RANGE BOUND"],
+    posted:     "22 min ago",
+    expires:    "4h 0m",
+    spark:      [5,7,8,6,5,7,8,6,5,6,7,8,6,5,7,8,6,5,6,7]
+  },
+  {
+    coin:       "ADA/USDT",
+    type:       "RANGE",
+    timeframe:  "4H",
+    entry:      "0.3840",
+    tp:         "0.4050",
+    sl:         "0.3720",
+    tp_pct:     "+5.5",
+    sl_pct:     "-3.1",
+    rr:         "1.8",
+    confidence: "68%",
+    thesis:     "Tight $0.372–$0.405 range, 12 days consolidating. Multiple touches both sides. Stoch RSI at bottom of range — historically bounces from here. Volume drying up.",
+    signals:    ["MULTI-TOUCH", "STOCH LOW", "VOL DRY", "CONSOLIDATION"],
+    active:     ["STOCH LOW", "CONSOLIDATION"],
+    posted:     "55 min ago",
+    expires:    "3h 5m",
+    spark:      [6,8,7,5,6,8,7,5,6,7,8,6,5,6,8,7,5,6,7,8]
+  }
+];
+
+// ── Render Cards ──────────────────────────────────────
+
+function getRRClass(rr) {
+  const v = parseFloat(rr);
+  if (v >= 2.5) return 'rr-good';
+  if (v >= 1.8) return 'rr-ok';
+  return 'rr-bad';
+}
+
+function renderSparkline(data, color) {
+  const max = Math.max(...data);
+  return data.map(v => {
+    const h = Math.round((v / max) * 100);
+    return `<div class="spark-bar" style="height:${h}%;background:${color};opacity:0.6;"></div>`;
+  }).join('');
+}
+
+function renderCard(trade, type) {
+  const isRange  = type === 'range';
+  const accent   = isRange ? 'var(--range)' : 'var(--trend)';
+  const cardClass = isRange ? 'range-card' : 'trend-card';
+
+  const signals = trade.signals.map(s => {
+    const active = trade.active.includes(s);
+    return `<div class="signal-chip ${active ? 'active' : ''}">${s}</div>`;
+  }).join('');
+
+  return `
+    <div class="trade-card ${cardClass}">
+      <div class="card-header">
+        <div>
+          <div class="coin-name">${trade.coin}</div>
+          <div class="coin-sub">${trade.type} · FUTURES PERP</div>
+        </div>
+        <div class="card-badge">
+          <div class="timeframe-badge">${trade.timeframe}</div>
+          <div class="confidence-badge">CONF ${trade.confidence}</div>
+        </div>
+      </div>
+
+      <div class="sparkline">
+        <div class="spark-bar-container">
+          ${renderSparkline(trade.spark, accent)}
+        </div>
+      </div>
+
+      <div class="card-price">
+        <div class="price-row">
+          <span class="price-label">ENTRY</span>
+          <span class="price-value entry-price">${trade.entry}</span>
+        </div>
+        <div class="price-row">
+          <span class="price-label">TAKE PROFIT</span>
+          <span class="price-value tp-price">${trade.tp}</span>
+        </div>
+        <div class="price-row">
+          <span class="price-label">STOP LOSS</span>
+          <span class="price-value sl-price">${trade.sl}</span>
+        </div>
+        <div class="rr-row">
+          <span class="rr-label">RISK / REWARD</span>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div class="pct-badges">
+              <span class="pct-badge pct-tp">${trade.tp_pct}%</span>
+              <span class="pct-badge pct-sl">${trade.sl_pct}%</span>
+            </div>
+            <span class="rr-value ${getRRClass(trade.rr)}">${trade.rr}R</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card-thesis">
+        <div class="thesis-text">${trade.thesis}</div>
+      </div>
+
+      <div class="card-signals">${signals}</div>
+
+      <div class="card-footer">
+        <span class="posted-time">SPOTTED ${trade.posted}</span>
+        <span class="expires-badge">EXPIRES ${trade.expires}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderEmpty(type) {
+  const msg = type === 'range'
+    ? 'No range setups\nmeeting criteria'
+    : 'No trend setups\nmeeting criteria';
+  return `
+    <div class="trade-card empty-card">
+      <div class="empty-text">${msg.replace('\n','<br>')}</div>
+    </div>
+  `;
+}
+
+function populateGrids(trends, ranges) {
+  const trendGrid = document.getElementById('trendGrid');
+  const rangeGrid = document.getElementById('rangeGrid');
+
+  trendGrid.innerHTML = '';
+  rangeGrid.innerHTML = '';
+
+  // Max 3 each
+  const t = trends.slice(0, 3);
+  const r = ranges.slice(0, 3);
+
+  t.forEach(trade => {
+    trendGrid.innerHTML += renderCard(trade, 'trend');
+  });
+  while (t.length < 3) {
+    trendGrid.innerHTML += renderEmpty('trend');
+    t.push(null);
+  }
+
+  r.forEach(trade => {
+    rangeGrid.innerHTML += renderCard(trade, 'range');
+  });
+  while (r.length < 3) {
+    rangeGrid.innerHTML += renderEmpty('range');
+    r.push(null);
+  }
+
+  document.getElementById('trendCount').textContent =
+    `${trends.slice(0,3).length}/3`;
+  document.getElementById('rangeCount').textContent =
+    `${ranges.slice(0,3).length}/3`;
+}
+
+// ── Scanner simulation ────────────────────────────────
+
+const SCAN_MESSAGES = [
+  'Initialising market scanner...',
+  'Loading Pionex futures universe...',
+  'Fetching 4H OHLCV data — 47 pairs...',
+  'Running regime detection...',
+  'Calculating ADX, EMA alignment...',
+  'Scanning trend breakout candidates...',
+  'Scanning range / consolidation setups...',
+  'Scoring risk/reward ratios...',
+  'Filtering by confidence threshold...',
+  'Compiling trade ideas...',
+];
+
+let scanIdx = 0;
+
+function advanceScanLog() {
+  if (scanIdx < SCAN_MESSAGES.length) {
+    document.getElementById('scanStatus').textContent = SCAN_MESSAGES[scanIdx];
+    scanIdx++;
+    setTimeout(advanceScanLog, 200);
+  }
+}
+
+function rescan() {
+  const overlay = document.getElementById('scanOverlay');
+  overlay.classList.remove('hidden');
+  scanIdx = 0;
+
+  // Reset progress bar
+  const bar = overlay.querySelector('.scan-progress-bar');
+  bar.style.animation = 'none';
+  bar.offsetHeight; // reflow
+  bar.style.animation = 'loading 2s ease-in-out forwards';
+
+  advanceScanLog();
+
+  setTimeout(() => {
+    overlay.classList.add('hidden');
+    populateGrids(TREND_TRADES, RANGE_TRADES);
+  }, 2200);
+}
+
+// Initial load
+window.addEventListener('load', () => {
+  advanceScanLog();
+  setTimeout(() => {
+    document.getElementById('scanOverlay').classList.add('hidden');
+    populateGrids(TREND_TRADES, RANGE_TRADES);
+  }, 2200);
+});
+
+// Auto-expire trades older than 4H (in production)
+// For demo: just refresh display every 60s
+setInterval(() => {
+  populateGrids(TREND_TRADES, RANGE_TRADES);
+}, 60000);
+</script>
+</body>
+</html>

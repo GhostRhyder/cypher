@@ -323,8 +323,8 @@ def get_trade_params(symbol: str, _send_pionex_request=None, _get_candles=None) 
     if r.is_ranging:
         return TradeParams(
             trade=True,
-            tp_pct=0.006,       # 0.6% — take what's there
-            sl_pct=0.004,       # 0.4% — tight
+            tp_pct=0.008,       # 0.8% (was 0.006)
+            sl_pct=0.0035,      # 0.35% (was 0.004)
             trail=False,        # NO trail — chop kills it
             trail_act=0,
             trail_dist=0,

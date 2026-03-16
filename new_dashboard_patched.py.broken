@@ -1,0 +1,149 @@
+import json
+import os
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+HTML_TEMPLATE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cypher | Multi-System Dashboard</title>
+    <style>
+        body { background-color: #0d1117; color: #c9d1d9; font-family: monospace; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { border-bottom: 1px solid #30363d; padding-bottom: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+        .title { font-size: 24px; font-weight: bold; color: #58a6ff; }
+        .status { padding: 5px 10px; border-radius: 5px; font-weight: bold; font-size: 14px; }
+        .status.hunting { background-color: #1f6feb; color: white; }
+        .status.deployed { background-color: #238636; color: white; }
+        .status.cooldown { background-color: #da3633; color: white; }
+        
+        .grid { display: block; margin-bottom: 20px; }
+        .card { background-color: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 15px; }
+        .card h3 { margin-top: 0; color: #8b949e; border-bottom: 1px solid #30363d; padding-bottom: 5px; }
+        
+        .log-box { background-color: #000; padding: 10px; border-radius: 4px; border: 1px solid #30363d; height: 300px; overflow-y: auto; font-size: 13px; color: #3fb950; }
+        .log-line { margin-bottom: 4px; }
+        
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th, td { text-align: left; padding: 8px; border-bottom: 1px solid #30363d; }
+        th { color: #8b949e; font-weight: normal; }
+        
+        .tab-btn { background: #30363d; color: #c9d1d9; border: none; padding: 5px 10px; margin-right: 5px; cursor: pointer; border-radius: 4px; font-family: monospace; }
+        .tab-btn.active { background: #238636; color: white; }
+        .btn-page { background: #238636; color: white; border: none; padding: 3px 8px; border-radius: 4px; cursor: pointer; }
+        .btn-page:disabled { background: #30363d; color: #8b949e; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="title">CYPHER // MULTI-SYSTEM DASHBOARD</div>
+        </div>
+        
+        
+        
+        <!-- TREND TRADES -->
+        <div style="margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; margin-bottom: 10px; padding-bottom: 5px;">
+                <h3 style="margin: 0; border: none; padding: 0; color: #00d4aa;">TREND TRADES</h3>
+                <div id="trend-count" style="font-size: 13px; color: #8b949e;">0/3</div>
+            </div>
+            <div id="trend-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;"></div>
+        </div>
+        <!-- RANGE TRADES -->
+        <div style="margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; margin-bottom: 10px; padding-bottom: 5px;">
+                <h3 style="margin: 0; border: none; padding: 0; color: #f0b429;">RANGE TRADES</h3>
+                <div id="range-count" style="font-size: 13px; color: #8b949e;">0/3</div>
+            </div>
+            <div id="range-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;"></div>
+        </div>
+
+        <div class="grid">
+
+    <script>
+        function createSparkline(data) {
+            if (!data || !data.length) return '';
+            const max = Math.max(...data);
+            const min = Math.min(...data);
+            const range = max - min || 1;
+            let html = '<div style="display: flex; align-items: flex-end; height: 20px; gap: 2px;">';
+            data.slice(-10).forEach(val => {
+                const height = Math.max(10, ((val - min) / range) * 100);
+                html += `<div style="width: 4px; background: #3fb950; height: ${height}%;"></div>`;
+            });
+            html += '</div>';
+            return html;
+        }
+        
+        // This integrates into the existing JS inside updateDashboard
+        // We will manually inject the logic inside updateDashboard using string replacement below.
+    </script>
+    
+</body>
+</html>
+"""
+
+def read_json_safe(path, default):
+    if not os.path.exists(path): return default
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except:
+        return default
+
+def read_logs_safe(path, lines=50):
+    if not os.path.exists(path): return []
+    try:
+        with open(path, "r") as f:
+            return [line.strip() for line in f.readlines()[-lines:] if line.strip()]
+    except:
+        return []
+
+class DashboardHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write(HTML_TEMPLATE.encode('utf-8'))
+            
+        elif self.path == '/api/data':
+            spotter_data = read_json_safe("trades.json", {"trend_trades": [], "range_trades": [], "scan_time": ""})
+            state_v3 = read_json_safe("state.json", {"state": "OFFLINE"})
+            state_swing = read_json_safe("swing_state.json", {"state": "OFFLINE"})
+            
+            history_v3 = read_json_safe("history.json", [])
+            history_swing = read_json_safe("swing_history.json", [])
+            
+            logs_v3 = read_logs_safe("trade_daemon_v2.log")
+            logs_swing = read_logs_safe("swing_daemon.log")
+
+            data = {
+                "state_v3": state_v3,
+                "state_swing": state_swing,
+                "history_v3": history_v3,
+                "history_swing": history_swing,
+                "logs_v3": logs_v3,
+                "logs_swing": logs_swing,
+                "spotter_data": spotter_data
+            
+            }
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode('utf-8'))
+            
+        else:
+            self.send_error(404)
+            
+    def log_message(self, format, *args):
+        pass
+
+if __name__ == '__main__':
+    port = 8080
+    server = HTTPServer(('0.0.0.0', port), DashboardHandler)
+    print(f"✅ Multi-System Dashboard running on port {port}")
+    server.serve_forever()

@@ -6,8 +6,8 @@ from datetime import datetime
 class DataManager:
     BASE_URL = "https://api.binance.com/api/v3"
     
-    # Hardcoded list to match Cypher's allowed universe
-    CYPHER_UNIVERSE = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ADAUSDT", "TRXUSDT", "XRPUSDT", "LINKUSDT", "AVAXUSDT"]
+    # Hardcoded list to match Cypher's allowed universe + candidates
+    CYPHER_UNIVERSE = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ADAUSDT", "TRXUSDT", "XRPUSDT", "LINKUSDT", "AVAXUSDT", "DOGEUSDT", "BNBUSDT", "PEPEUSDT", "SUIUSDT"]
 
     def get_top_volume_coins(self, limit=10):
         """Returns the specific coins Ghost needs to optimize for the daemon."""

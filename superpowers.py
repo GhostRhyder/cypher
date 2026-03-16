@@ -229,10 +229,9 @@ GHOST_CONFIG = {
         "S5_Scalp":    {"tp": 0.011, "sl": 0.007}, # Ghost Optimized S5
         "default":     {"tp": 0.008, "sl": 0.006}
     },
-    "TRX_USDT": {
-        "S4_Momentum": {"tp": 0.013, "sl": 0.003}, # Ghost Optimized S4
-        "S5_Scalp":    {"tp": 0.015, "sl": 0.004}, # Ghost Optimized S5
-        "default":     {"tp": 0.008, "sl": 0.008}
+    "DOGE_USDT": {
+        "S5_Scalp":    {"tp": 0.015, "sl": 0.003}, # Ghost Optimized S5
+        "default":     {"tp": 0.008, "sl": 0.005}
     },
     "LINK_USDT": {
         "S4_Momentum": {"tp": 0.007, "sl": 0.006}, # Ghost Optimized S4

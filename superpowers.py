@@ -17,7 +17,7 @@ import time
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 # Minimum 24h USDT volume to even consider a coin
-MIN_VOLUME_USDT = 5_000_000
+MIN_VOLUME_USDT = 1_000_000
 
 # Maximum allowed spread (bid/ask) as a fraction
 MAX_SPREAD_PCT = 0.0015     # 0.15%
@@ -28,11 +28,6 @@ ADX_RANGING  = 20           # below this = choppy/ranging market
 
 # ATR spike — if current ATR > median * this multiplier = high volatility
 ATR_SPIKE_MULT = 1.8
-
-# Base fallback parameters (neutral regime)
-BASE_TP = 0.008             # 0.8%
-BASE_SL = 0.005             # 0.5%
-
 
 # ── Data Classes ──────────────────────────────────────────────────────────────
 
@@ -47,6 +42,7 @@ class TradeParams:
     size_mult:  float   # Position size multiplier (1.0 = full, 0.5 = half)
     regime:     str     # "trending" / "ranging" / "volatile" / "neutral" / "skip"
     reason:     str     # Human-readable explanation logged by daemon
+    signal_type: str = None # S4_Momentum or S5_Scalp
 
 
 @dataclass
@@ -66,11 +62,7 @@ class MarketRegime:
 # ── Indicator Calculations ────────────────────────────────────────────────────
 
 def calc_atr(klines: list, period: int = 14) -> tuple[float, float]:
-    """
-    Returns (current_atr, median_atr).
-    True Range = max(high-low, |high-prev_close|, |low-prev_close|)
-    Uses Wilder smoothing — same as TradingView.
-    """
+    """Returns (current_atr, median_atr)."""
     if len(klines) < period + 1:
         return 0.0, 0.0
 
@@ -104,11 +96,7 @@ def calc_atr(klines: list, period: int = 14) -> tuple[float, float]:
 
 
 def calc_adx(klines: list, period: int = 14) -> float:
-    """
-    ADX (Average Directional Index).
-    >25 = trending, <20 = ranging/choppy.
-    Uses Wilder smoothing — same as TradingView.
-    """
+    """ADX Calculation."""
     if len(klines) < period * 2:
         return 0.0
 
@@ -130,15 +118,9 @@ def calc_adx(klines: list, period: int = 14) -> float:
     for i in range(1, len(klines)):
         up_move   = highs[i]  - highs[i-1]
         down_move = lows[i-1] - lows[i]
-
         plus_dm  = up_move   if (up_move > down_move  and up_move > 0)   else 0.0
         minus_dm = down_move if (down_move > up_move  and down_move > 0) else 0.0
-
-        tr = max(
-            highs[i] - lows[i],
-            abs(highs[i] - closes[i-1]),
-            abs(lows[i]  - closes[i-1])
-        )
+        tr = max(highs[i] - lows[i], abs(highs[i] - closes[i-1]), abs(lows[i] - closes[i-1]))
         plus_dm_list.append(plus_dm)
         minus_dm_list.append(minus_dm)
         tr_list.append(tr)
@@ -155,59 +137,43 @@ def calc_adx(klines: list, period: int = 14) -> float:
 
     dx_list = []
     for i in range(len(sm_tr)):
-        if sm_tr[i] == 0:
-            continue
+        if sm_tr[i] == 0: continue
         plus_di  = 100 * sm_plus[i]  / sm_tr[i]
         minus_di = 100 * sm_minus[i] / sm_tr[i]
         denom    = plus_di + minus_di
-        if denom == 0:
-            continue
+        if denom == 0: continue
         dx_list.append(100 * abs(plus_di - minus_di) / denom)
 
-    if len(dx_list) < period:
-        return 0.0
-
+    if len(dx_list) < period: return 0.0
     return float(np.mean(dx_list[-period:]))
 
 
 def calc_spread(ob: dict) -> float:
-    """Spread as a fraction of mid price from orderbook."""
     try:
         best_ask = float(ob["asks"][0][0])
         best_bid = float(ob["bids"][0][0])
         mid      = (best_ask + best_bid) / 2
         return (best_ask - best_bid) / mid
-    except Exception:
+    except:
         return 0.0
 
 
 # ── Regime Detection ──────────────────────────────────────────────────────────
 
 def detect_regime(symbol: str, send_pionex_request, get_candles) -> MarketRegime:
-    """
-    Classifies the current market regime for a symbol.
-    Uses Cypher's existing send_pionex_request and get_candles functions
-    so we don't duplicate API auth logic.
-    """
-    # Candles — 5m, 100 bars
     klines = []
     try:
         resp = get_candles(symbol, "5M", limit=100)
         if resp and 'data' in resp and 'klines' in resp['data']:
             klines = resp['data']['klines']
-    except Exception as e:
-        print(f"[Superpowers] Candle fetch error {symbol}: {e}")
+    except: pass
 
-    # Orderbook for spread
     ob = {}
     try:
         res = send_pionex_request("GET", "/api/v1/market/depth", params={"symbol": symbol, "limit": 5})
-        if res and 'data' in res:
-            ob = res['data']
-    except Exception as e:
-        print(f"[Superpowers] Orderbook error {symbol}: {e}")
+        if res and 'data' in res: ob = res['data']
+    except: pass
 
-    # 24h volume
     volume = 0.0
     try:
         res = send_pionex_request("GET", "/api/v1/market/tickers")
@@ -215,8 +181,7 @@ def detect_regime(symbol: str, send_pionex_request, get_candles) -> MarketRegime
             if t.get('symbol') == symbol:
                 volume = float(t.get('amount', 0))
                 break
-    except Exception as e:
-        print(f"[Superpowers] Volume error {symbol}: {e}")
+    except: pass
 
     adx             = calc_adx(klines) if len(klines) >= 28 else 0.0
     atr, atr_median = calc_atr(klines) if len(klines) >= 15 else (0.0, 0.0)
@@ -236,217 +201,80 @@ def detect_regime(symbol: str, send_pionex_request, get_candles) -> MarketRegime
     )
 
 
+# ── Global Optimization Table (Ghost, Mar 16 2026) ────────────────────────────
+
+GHOST_CONFIG = {
+    "BTC_USDT": {
+        "S5_Scalp":    {"tp": 0.012, "sl": 0.010},
+        "S4_Momentum": {"tp": 0.009, "sl": 0.003}, # Baseline until optimized
+        "default":     {"tp": 0.009, "sl": 0.003}
+    },
+    "ETH_USDT":  {"default": {"tp": 0.010, "sl": 0.005}},
+    "SOL_USDT":  {"default": {"tp": 0.009, "sl": 0.005}},
+    "XRP_USDT":  {"default": {"tp": 0.014, "sl": 0.009}},
+    "ADA_USDT":  {"default": {"tp": 0.008, "sl": 0.006}},
+    "TRX_USDT":  {"default": {"tp": 0.008, "sl": 0.008}},
+    "LINK_USDT": {"default": {"tp": 0.015, "sl": 0.007}},
+    "AVAX_USDT": {"default": {"tp": 0.005, "sl": 0.005}},
+}
+
+
 # ── Adaptive Parameter Engine ─────────────────────────────────────────────────
 
-def get_trade_params(symbol: str, _send_pionex_request=None, _get_candles=None) -> TradeParams:
-    """
-    ──────────────────────────────────────────────────────
-    MAIN ENTRY POINT — called by trade_daemon_v2 before
-    every single entry.
-
-    Two calling modes:
-
-    1. Standalone (pass API functions explicitly):
-         from superpowers import get_trade_params
-         from pionex_api_template import send_pionex_request, get_candles
-         params = get_trade_params("SOL_USDT", send_pionex_request, get_candles)
-
-    2. Auto-import (daemon passes nothing, we import internally):
-         params = get_trade_params("SOL_USDT")
-    ──────────────────────────────────────────────────────
-    """
-    # If caller didn't pass API functions, import them ourselves
+def get_trade_params(symbol: str, _send_pionex_request=None, _get_candles=None, signal_type=None) -> TradeParams:
     if _send_pionex_request is None or _get_candles is None:
         try:
             from pionex_api_template import send_pionex_request as spr, get_candles as gc
             _send_pionex_request = spr
             _get_candles = gc
-        except ImportError as e:
-            # Can't reach API — return safe neutral params rather than crash
-            print(f"[Superpowers] API import failed: {e}. Using base params.")
-            return TradeParams(
-                trade=True, tp_pct=BASE_TP, sl_pct=BASE_SL,
-                trail=False, trail_act=0, trail_dist=0,
-                size_mult=0.75, regime="neutral",
-                reason="API unavailable — base params applied"
-            )
+        except:
+            return TradeParams(trade=False, tp_pct=0, sl_pct=0, trail=False, trail_act=0, trail_dist=0, size_mult=0, regime="error", reason="API unavailable")
 
     r = detect_regime(symbol, _send_pionex_request, _get_candles)
 
-    # ── Hard skip: no liquidity ───────────────────────
+    # Hard checks
     if not r.has_liquidity:
-        return TradeParams(
-            trade=False, tp_pct=0, sl_pct=0,
-            trail=False, trail_act=0, trail_dist=0,
-            size_mult=0, regime="skip",
-            reason=f"Volume ${r.volume_usdt:,.0f} below ${MIN_VOLUME_USDT:,.0f} minimum"
-        )
-
-    # ── Hard skip: spread too wide ────────────────────
+        return TradeParams(trade=False, tp_pct=0, sl_pct=0, trail=False, trail_act=0, trail_dist=0, size_mult=0, regime="skip", reason="Low volume")
     if not r.spread_ok:
-        return TradeParams(
-            trade=False, tp_pct=0, sl_pct=0,
-            trail=False, trail_act=0, trail_dist=0,
-            size_mult=0, regime="skip",
-            reason=f"Spread {r.spread_pct*100:.3f}% exceeds {MAX_SPREAD_PCT*100:.2f}% limit"
-        )
+        return TradeParams(trade=False, tp_pct=0, sl_pct=0, trail=False, trail_act=0, trail_dist=0, size_mult=0, regime="skip", reason="Wide spread")
 
-    # ── Volatile: ATR spike detected ──────────────────
-    if r.is_volatile:
-        return TradeParams(
-            trade=True,
-            tp_pct=0.015,       # 1.5% — needs room to breathe
-            sl_pct=0.008,       # 0.8% — wider floor
-            trail=False,        # trail gets whipsawed in spikes
-            trail_act=0,
-            trail_dist=0,
-            size_mult=0.5,      # half size — protect capital
-            regime="volatile",
-            reason=f"ATR spike {r.atr:.6f} vs median {r.atr_median:.6f} — half size"
-        )
-
-    # ── Trending: ADX strong ──────────────────────────
-    if r.is_trending:
-        return TradeParams(
-            trade=True,
-            tp_pct=0.012,       # 1.2% — let winners run
-            sl_pct=0.006,       # 0.6% — slightly wider
-            trail=True,         # trail is VALID in trends
-            trail_act=0.010,    # activate at +1.0%
-            trail_dist=0.004,   # shadow 0.4% behind peak
-            size_mult=1.0,      # full size — high conviction
-            regime="trending",
-            reason=f"ADX {r.adx:.1f} — trending. Full size, trail on."
-        )
-
-    # ── Ranging: choppy conditions ────────────────────
-    if r.is_ranging:
-        # Override for BTC_USDT and ETH_USDT based on Ghost's optimizations (Mar 16 2026)
-        if symbol == "BTC_USDT":
-            return TradeParams(
-                trade=True,
-                tp_pct=0.009,       # 0.9% - Ghost optimized
-                sl_pct=0.003,       # 0.3% - Ghost optimized
-                trail=False,
-                trail_act=0,
-                trail_dist=0,
-                size_mult=1.0,      # High conviction optimization
-                regime="ranging",
-                reason="Ghost Optimization: BTC 0.9% TP / 0.3% SL override applied."
-            )
+    # ── GHOST OPTIMIZED MODE (DEFAULT) ──────────────────
+    if symbol in GHOST_CONFIG:
+        coin_config = GHOST_CONFIG[symbol]
         
-        if symbol == "ETH_USDT":
-            return TradeParams(
-                trade=True,
-                tp_pct=0.010,       # 1.0% - Ghost optimized
-                sl_pct=0.005,       # 0.5% - Ghost optimized
-                trail=False,
-                trail_act=0,
-                trail_dist=0,
-                size_mult=1.0,      # High conviction optimization
-                regime="ranging",
-                reason="Ghost Optimization: ETH 1.0% TP / 0.5% SL override applied."
-            )
+        # Determine specific config based on signal type
+        if signal_type and signal_type in coin_config:
+            config = coin_config[signal_type]
+            reason_signal = f"[{signal_type}]"
+        else:
+            config = coin_config.get("default", list(coin_config.values())[0])
+            reason_signal = "[Default]"
+        
+        # If volatile, we still reduce size but keep your targets
+        size = 1.0
+        regime = "ghost_optimized"
+        reason = f"Ghost Parameters Applied {reason_signal}: {config['tp']*100:.2f}% TP / {config['sl']*100:.2f}% SL"
 
-        if symbol == "SOL_USDT":
-            return TradeParams(
-                trade=True,
-                tp_pct=0.009,       # 0.9% - Ghost optimized
-                sl_pct=0.005,       # 0.5% - Ghost optimized
-                trail=False,
-                trail_act=0,
-                trail_dist=0,
-                size_mult=1.0,      # High conviction optimization
-                regime="ranging",
-                reason="Ghost Optimization: SOL 0.9% TP / 0.5% SL override applied."
-            )
-
-        if symbol == "XRP_USDT":
-            return TradeParams(
-                trade=True,
-                tp_pct=0.014,       # 1.4% - Ghost optimized
-                sl_pct=0.009,       # 0.9% - Ghost optimized
-                trail=False,
-                trail_act=0,
-                trail_dist=0,
-                size_mult=1.0,      # High conviction optimization
-                regime="ranging",
-                reason="Ghost Optimization: XRP 1.4% TP / 0.9% SL override applied."
-            )
-
-        if symbol == "ADA_USDT":
-            return TradeParams(
-                trade=True,
-                tp_pct=0.008,       # 0.8% - Ghost optimized
-                sl_pct=0.006,       # 0.6% - Ghost optimized
-                trail=False,
-                trail_act=0,
-                trail_dist=0,
-                size_mult=1.0,      # High conviction optimization
-                regime="ranging",
-                reason="Ghost Optimization: ADA 0.8% TP / 0.6% SL override applied."
-            )
-
-        if symbol == "TRX_USDT":
-            return TradeParams(
-                trade=True,
-                tp_pct=0.008,       # 0.8% - Ghost optimized
-                sl_pct=0.008,       # 0.8% - Ghost optimized
-                trail=False,
-                trail_act=0,
-                trail_dist=0,
-                size_mult=1.0,      # High conviction optimization
-                regime="ranging",
-                reason="Ghost Optimization: TRX 0.8% TP / 0.8% SL override applied."
-            )
-
-        if symbol == "LINK_USDT":
-            return TradeParams(
-                trade=True,
-                tp_pct=0.015,       # 1.5% - Ghost optimized
-                sl_pct=0.007,       # 0.7% - Ghost optimized
-                trail=False,
-                trail_act=0,
-                trail_dist=0,
-                size_mult=1.0,      # High conviction optimization
-                regime="ranging",
-                reason="Ghost Optimization: LINK 1.5% TP / 0.7% SL override applied."
-            )
-
-        if symbol == "AVAX_USDT":
-            return TradeParams(
-                trade=True,
-                tp_pct=0.005,       # 0.5% - Ghost optimized
-                sl_pct=0.005,       # 0.5% - Ghost optimized
-                trail=False,
-                trail_act=0,
-                trail_dist=0,
-                size_mult=1.0,      # High conviction optimization
-                regime="ranging",
-                reason="Ghost Optimization: AVAX 0.5% TP / 0.5% SL override applied."
-            )
-
+        if r.is_volatile:
+            size = 0.5
+            regime = "ghost_volatile"
+            reason += " (Volatile Market: Size 0.5x)"
+        
         return TradeParams(
             trade=True,
-            tp_pct=0.008,       # 0.8% (was 0.006)
-            sl_pct=0.0035,      # 0.35% (was 0.004)
-            trail=False,        # NO trail — chop kills it
+            tp_pct=config['tp'],
+            sl_pct=config['sl'],
+            trail=False,
             trail_act=0,
             trail_dist=0,
-            size_mult=0.75,     # slightly reduced
-            regime="ranging",
-            reason=f"ADX {r.adx:.1f} — ranging. Tight TP/SL, no trail."
+            size_mult=size,
+            regime=regime,
+            reason=reason,
+            signal_type=signal_type
         )
 
-    # ── Neutral: transitioning / unclear ─────────────
-    return TradeParams(
-        trade=True,
-        tp_pct=BASE_TP,
-        sl_pct=BASE_SL,
-        trail=False,
-        trail_act=0,
-        trail_dist=0,
-        size_mult=0.75,
-        regime="neutral",
-        reason=f"ADX {r.adx:.1f} — no clear regime. Base params, reduced size."
-    )
+    # Fallback for non-optimized coins (Neutral/Trending logic)
+    if r.is_trending:
+        return TradeParams(trade=True, tp_pct=0.012, sl_pct=0.006, trail=True, trail_act=0.010, trail_dist=0.004, size_mult=1.0, regime="trending", reason="ADX trending")
+    
+    return TradeParams(trade=True, tp_pct=0.008, sl_pct=0.005, trail=False, trail_act=0, trail_dist=0, size_mult=0.75, regime="neutral", reason="Default fallback")

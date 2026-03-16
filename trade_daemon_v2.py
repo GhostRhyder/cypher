@@ -155,7 +155,7 @@ def scan_market(exclude_symbols=[]):
             fastk, fastd = talib.STOCHRSI(close, timeperiod=14, fastk_period=3, fastd_period=3, fastd_matype=0)
             if fastk[-1] < 20 and fastk[-1] > fastd[-1] and fastk[-2] <= fastd[-2]:
                 log(f"[SCANNER] 🔥 S5_Scalp on {symbol} (Spread: {spread*100:.3f}%)")
-                return symbol
+                return symbol, "S5_Scalp"
         except:
             pass
 
@@ -165,11 +165,11 @@ def scan_market(exclude_symbols=[]):
             rsi                  = talib.RSI(close, timeperiod=14)
             if macd[-1] > macd_signal[-1] and rsi[-1] > 50 and macd[-2] <= macd_signal[-2]:
                 log(f"[SCANNER] 🔥 S4_Momentum on {symbol} (Spread: {spread*100:.3f}%)")
-                return symbol
+                return symbol, "S4_Momentum"
         except:
             pass
 
-    return None
+    return None, None
 
 def execute_buy(symbol, usdt_amount):
     try:
@@ -353,11 +353,11 @@ def run_v2_daemon():
                         f"Scan size: ${trade_size:.2f} (Equity: ${total_equity:.2f})")
 
                     # ── BUG FIX: was mis-indented in original ──
-                    target = scan_market(exclude_symbols=list(active_positions.keys()))
+                    target, signal_type = scan_market(exclude_symbols=list(active_positions.keys()))
 
                     if target:
                         # ── Superpowers regime check ───────────
-                        params = get_trade_params(target)
+                        params = get_trade_params(target, signal_type=signal_type)
 
                         if not params.trade:
                             log(f"[SUPERPOWERS] ⛔ Blocked {target}: {params.reason}")

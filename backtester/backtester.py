@@ -116,12 +116,19 @@ class Backtester:
         
         return trades
 
-    def optimize(self, tp_range, sl_range, step=0.001):
-        """Run optimization over a range of TP and SL values."""
+    def optimize(self, tp_range, sl_range, step=0.001, signal_type=None):
+        """Run optimization over a range of TP and SL values, optionally filtered by signal type."""
         results = []
         for tp in np.arange(tp_range[0], tp_range[1] + step, step):
             for sl in np.arange(sl_range[0], sl_range[1] + step, step):
-                trades = self.run_backtest(tp, sl)
+                all_trades = self.run_backtest(tp, sl)
+                
+                # Filter trades by signal type if specified
+                if signal_type:
+                    trades = [t for t in all_trades if t['signal'] == signal_type]
+                else:
+                    trades = all_trades
+
                 if not trades:
                     results.append({'tp': round(tp, 4), 'sl': round(sl, 4), 'total_pnl': 0, 'win_rate': 0, 'trade_count': 0})
                     continue

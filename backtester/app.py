@@ -49,13 +49,14 @@ def run_optimization():
     sl_min = float(data.get('sl_min', 0.003))
     sl_max = float(data.get('sl_max', 0.01))
     step = float(data.get('step', 0.001))
+    signal_type = data.get('signal_type') # New field: 'S4_Momentum' or 'S5_Scalp'
     
     df = dm.fetch_candles(symbol)
     if df is None:
         return jsonify({"error": "Failed to fetch data"}), 400
         
     bt = Backtester(df)
-    results = bt.optimize((tp_min, tp_max), (sl_min, sl_max), step)
+    results = bt.optimize((tp_min, tp_max), (sl_min, sl_max), step, signal_type=signal_type)
     
     return jsonify(results)
 

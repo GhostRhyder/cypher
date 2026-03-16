@@ -214,10 +214,10 @@ GHOST_CONFIG = {
         "S5_Scalp":    {"tp": 0.010, "sl": 0.003}, # Ghost Optimized S5
         "default":     {"tp": 0.010, "sl": 0.005}
     },
-    "SOL_USDT": {
-        "S4_Momentum": {"tp": 0.011, "sl": 0.010}, # Ghost Optimized S4
-        "S5_Scalp":    {"tp": 0.011, "sl": 0.003}, # Ghost Optimized S5
-        "default":     {"tp": 0.009, "sl": 0.005}
+    "SUI_USDT": {
+        "S4_Momentum": {"tp": 0.006, "sl": 0.005}, # Ghost Optimized S4
+        "S5_Scalp":    {"tp": 0.007, "sl": 0.006}, # Ghost Optimized S5
+        "default":     {"tp": 0.008, "sl": 0.005}
     },
     "XRP_USDT": {
         "S4_Momentum": {"tp": 0.007, "sl": 0.006}, # Ghost Optimized S4

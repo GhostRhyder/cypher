@@ -206,16 +206,44 @@ def detect_regime(symbol: str, send_pionex_request, get_candles) -> MarketRegime
 GHOST_CONFIG = {
     "BTC_USDT": {
         "S5_Scalp":    {"tp": 0.012, "sl": 0.010},
-        "S4_Momentum": {"tp": 0.009, "sl": 0.003}, # Baseline until optimized
+        "S4_Momentum": {"tp": 0.015, "sl": 0.006}, # Ghost Optimized S4
         "default":     {"tp": 0.009, "sl": 0.003}
     },
-    "ETH_USDT":  {"default": {"tp": 0.010, "sl": 0.005}},
-    "SOL_USDT":  {"default": {"tp": 0.009, "sl": 0.005}},
-    "XRP_USDT":  {"default": {"tp": 0.014, "sl": 0.009}},
-    "ADA_USDT":  {"default": {"tp": 0.008, "sl": 0.006}},
-    "TRX_USDT":  {"default": {"tp": 0.008, "sl": 0.008}},
-    "LINK_USDT": {"default": {"tp": 0.015, "sl": 0.007}},
-    "AVAX_USDT": {"default": {"tp": 0.005, "sl": 0.005}},
+    "ETH_USDT": {
+        "S4_Momentum": {"tp": 0.015, "sl": 0.005}, # Ghost Optimized S4
+        "S5_Scalp":    {"tp": 0.010, "sl": 0.003}, # Ghost Optimized S5
+        "default":     {"tp": 0.010, "sl": 0.005}
+    },
+    "SOL_USDT": {
+        "S4_Momentum": {"tp": 0.011, "sl": 0.010}, # Ghost Optimized S4
+        "S5_Scalp":    {"tp": 0.011, "sl": 0.003}, # Ghost Optimized S5
+        "default":     {"tp": 0.009, "sl": 0.005}
+    },
+    "XRP_USDT": {
+        "S4_Momentum": {"tp": 0.007, "sl": 0.006}, # Ghost Optimized S4
+        "S5_Scalp":    {"tp": 0.015, "sl": 0.009}, # Ghost Optimized S5
+        "default":     {"tp": 0.014, "sl": 0.009}
+    },
+    "ADA_USDT": {
+        "S4_Momentum": {"tp": 0.015, "sl": 0.003}, # Ghost Optimized S4
+        "S5_Scalp":    {"tp": 0.011, "sl": 0.007}, # Ghost Optimized S5
+        "default":     {"tp": 0.008, "sl": 0.006}
+    },
+    "TRX_USDT": {
+        "S4_Momentum": {"tp": 0.013, "sl": 0.003}, # Ghost Optimized S4
+        "S5_Scalp":    {"tp": 0.015, "sl": 0.004}, # Ghost Optimized S5
+        "default":     {"tp": 0.008, "sl": 0.008}
+    },
+    "LINK_USDT": {
+        "S4_Momentum": {"tp": 0.007, "sl": 0.006}, # Ghost Optimized S4
+        "S5_Scalp":    {"tp": 0.015, "sl": 0.005}, # Ghost Optimized S5
+        "default":     {"tp": 0.015, "sl": 0.007}
+    },
+    "AVAX_USDT": {
+        "S4_Momentum": {"tp": 0.013, "sl": 0.009}, # Ghost Optimized S4
+        "S5_Scalp":    {"tp": 0.005, "sl": 0.005}, # Ghost Optimized S5
+        "default":     {"tp": 0.005, "sl": 0.005}
+    },
 }
 
 
